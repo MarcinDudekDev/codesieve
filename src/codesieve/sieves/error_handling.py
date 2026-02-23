@@ -47,6 +47,22 @@ def _is_empty_body(except_node) -> bool:
     return False
 
 
+_RAISE_SKIP_TYPES = ("function_definition", "except_clause")
+
+
+def _has_raise_in_scope(block) -> bool:
+    """Check if block contains a raise_statement, not crossing into nested except clauses or functions."""
+    stack = list(reversed(block.children))
+    while stack:
+        node = stack.pop()
+        if node.type == "raise_statement":
+            return True
+        if node.type in _RAISE_SKIP_TYPES:
+            continue
+        stack.extend(reversed(node.children))
+    return False
+
+
 def _is_broad_without_reraise(except_node, source: bytes) -> bool:
     """Check if except catches Exception broadly without re-raising."""
     catches_exception = False
@@ -66,7 +82,7 @@ def _is_broad_without_reraise(except_node, source: bytes) -> bool:
     if block is None:
         return False
 
-    return not any(node.type == "raise_statement" for node in ast_utils.walk_within_scope(block))
+    return not _has_raise_in_scope(block)
 
 
 def _check_except_clause(clause, source: bytes) -> list[tuple[str, float, str]]:
