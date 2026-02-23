@@ -20,6 +20,13 @@ def _get_param_name(child, source: bytes) -> str | None:
         name = ast_utils.get_node_text(child, source)
         return None if name in SKIP_NAMES else name
 
+    if child.type in SPLAT_TYPES:
+        for sub in child.children:
+            if sub.type == "identifier":
+                name = ast_utils.get_node_text(sub, source)
+                return None if name in SKIP_NAMES else name
+        return None
+
     name_child = child.child_by_field_name("name") or (child.children[0] if child.children else None)
     if name_child:
         name = ast_utils.get_node_text(name_child, source)
