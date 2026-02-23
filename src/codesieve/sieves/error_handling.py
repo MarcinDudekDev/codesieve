@@ -60,7 +60,7 @@ def _is_broad_without_reraise(except_node, source: bytes) -> bool:
     if block is None:
         return False
 
-    return not any(node.type == "raise_statement" for node in ast_utils.walk_tree(block))
+    return not any(node.type == "raise_statement" for node in ast_utils.walk_within_scope(block))
 
 
 def _check_except_clause(clause, source: bytes) -> list[tuple[str, float, str]]:

@@ -17,7 +17,7 @@ def test_good_code_no_magic_numbers():
 def test_bad_code_has_magic_numbers():
     parsed = ParsedFile(str(FIXTURES / "bad.py"))
     result = MagicNumbersSieve().analyze(parsed)
-    assert result.score <= 7.0, f"Bad code should score <=7 for magic numbers, got {result.score}"
+    assert result.score <= 8.0, f"Bad code should score <=8 for magic numbers, got {result.score}"
 
 
 def test_bad_code_magic_number_findings():

@@ -56,7 +56,7 @@ def _parse_numeric(node, source: bytes) -> float | None:
     text = ast_utils.get_node_text(node, source)
     try:
         value = int(text, 0) if node.type == "integer" else float(text)
-    except ValueError:
+    except (ValueError, OverflowError):
         return None
     if _is_negated(node):
         value = -value
