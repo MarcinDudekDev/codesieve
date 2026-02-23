@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "codesieve"
+version = "0.1.0"
+description = "Grade code through 7 principle-based sieves (KISS, DRY, SRP, Naming, Nesting, Complexity, Comments)"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Marcin Dudek", email = "marcin.dudek.dev@gmail.com" }]
+keywords = ["code-quality", "static-analysis", "linting", "KISS", "DRY", "SRP"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Software Development :: Quality Assurance",
+]
+dependencies = [
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+    "tree-sitter>=0.23",
+    "tree-sitter-python>=0.23",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov"]
+
+[project.scripts]
+codesieve = "codesieve.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/codesieve"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
