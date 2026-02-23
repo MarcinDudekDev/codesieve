@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from codesieve.models import SieveResult, SieveType, Finding
-from codesieve.parser.treesitter import ParsedFile
+from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.parser import ast_utils
 from codesieve.sieves.base import BaseSieve
 
@@ -15,14 +15,10 @@ UPPER_SNAKE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 PASCAL_CASE = re.compile(r"^[A-Z][a-zA-Z0-9]*$")
 DUNDER = re.compile(r"^__[a-z][a-z0-9_]*__$")
 
-# Common abbreviations that are OK
 ALLOWED_SHORT = {"i", "j", "k", "n", "x", "y", "z", "e", "f", "fd", "fn", "db", "id", "ip", "ok", "os", "re", "io", "_"}
-
-# Single-letter names that are bad outside loops/lambdas
-SINGLE_LETTER = re.compile(r"^[a-zA-Z]$")
-
-# Common abbreviations that should be expanded
-ABBREVIATED = re.compile(r"^[a-z]{1,2}\d*$")  # very short names like 'tp', 'v1'
+SKIP_NAMES = ("self", "cls")
+VIOLATION_SCALE = 18.0
+SHORT_NAME_LIMIT = 2
 
 
 def _is_valid_python_name(name: str, context: str) -> tuple[bool, str]:
@@ -32,21 +28,105 @@ def _is_valid_python_name(name: str, context: str) -> tuple[bool, str]:
     if name.startswith("_"):
         name_check = name.lstrip("_")
         if not name_check:
-            return True, ""  # just underscores (throwaway)
+            return True, ""
         name = name_check
     if context == "class":
         if PASCAL_CASE.match(name):
             return True, ""
         return False, f"class '{name}' should be PascalCase"
     if context == "constant":
-        if UPPER_SNAKE.match(name):
-            return True, ""
-        # Constants are hard to detect, skip for now
         return True, ""
-    # functions, variables, parameters — snake_case
     if SNAKE_CASE.match(name) or UPPER_SNAKE.match(name):
         return True, ""
     return False, f"'{name}' should be snake_case"
+
+
+def _check_definition_names(parsed: ParsedFile) -> tuple[int, int, list[Finding]]:
+    """Check function and class definition names. Returns (total, violations, findings)."""
+    total = 0
+    violations = 0
+    findings: list[Finding] = []
+
+    for func in parsed.get_functions():
+        total += 1
+        valid, reason = _is_valid_python_name(func.name, "function")
+        if not valid:
+            violations += 1
+            findings.append(Finding(message=reason, line=func.start_line, function=func.name, severity="warning"))
+
+    for cls in parsed.get_classes():
+        total += 1
+        valid, reason = _is_valid_python_name(cls.name, "class")
+        if not valid:
+            violations += 1
+            findings.append(Finding(message=reason, line=cls.start_line, severity="warning"))
+
+    return total, violations, findings
+
+
+def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str]) -> tuple[int, int, list[Finding]]:
+    """Check parameter names for abbreviations. Returns (total, violations, findings)."""
+    params_node = func.node.child_by_field_name("parameters")
+    if not params_node:
+        return 0, 0, []
+
+    total = 0
+    violations = 0
+    findings: list[Finding] = []
+
+    for child in ast_utils.walk_tree(params_node):
+        if child.type != "identifier":
+            continue
+        name = ast_utils.get_node_text(child, source)
+        if name in SKIP_NAMES or name in seen:
+            continue
+        seen.add(name)
+        total += 1
+        if len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
+            violations += 1
+            findings.append(Finding(
+                message=f"abbreviated parameter '{name}' in {func.name}()",
+                line=func.start_line, function=func.name, severity="info",
+            ))
+
+    return total, violations, findings
+
+
+def _check_variable_names(func: FunctionInfo, source: bytes, seen: set[str]) -> tuple[int, int, list[Finding]]:
+    """Check variable assignment names. Returns (total, violations, findings)."""
+    body = func.node.child_by_field_name("body")
+    if not body:
+        return 0, 0, []
+
+    total = 0
+    violations = 0
+    findings: list[Finding] = []
+
+    for node in ast_utils.walk_tree(body):
+        if node.type != "assignment":
+            continue
+        left = node.child_by_field_name("left")
+        if not left or left.type != "identifier":
+            continue
+        name = ast_utils.get_node_text(left, source)
+        if name in seen:
+            continue
+        seen.add(name)
+        total += 1
+        line = node.start_point[0] + 1
+
+        valid, reason = _is_valid_python_name(name, "variable")
+        if not valid:
+            violations += 1
+            findings.append(Finding(message=reason, line=line, function=func.name, severity="warning"))
+        elif len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
+            violations += 1
+            findings.append(Finding(
+                message=f"abbreviated variable '{name}' in {func.name}()",
+                line=line, function=func.name, severity="info",
+            ))
+
+    return total, violations, findings
 
 
 class NamingSieve(BaseSieve):
@@ -56,105 +136,21 @@ class NamingSieve(BaseSieve):
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        findings: list[Finding] = []
-        total_names = 0
-        violations = 0
+        total_names, violations, findings = _check_definition_names(parsed)
 
-        # Check function names
-        for func in parsed.get_functions():
-            total_names += 1
-            valid, reason = _is_valid_python_name(func.name, "function")
-            if not valid:
-                violations += 1
-                findings.append(Finding(
-                    message=reason,
-                    line=func.start_line,
-                    function=func.name,
-                    severity="warning",
-                ))
-
-        # Check class names
-        for cls in parsed.get_classes():
-            total_names += 1
-            valid, reason = _is_valid_python_name(cls.name, "class")
-            if not valid:
-                violations += 1
-                findings.append(Finding(
-                    message=reason,
-                    line=cls.start_line,
-                    severity="warning",
-                ))
-
-        # Check for abbreviated/single-letter names in function definitions
         seen_names: set[str] = set()
         for func in parsed.get_functions():
-            # Get parameter names
-            params_node = func.node.child_by_field_name("parameters")
-            if params_node:
-                for child in ast_utils.walk_tree(params_node):
-                    if child.type == "identifier":
-                        name = ast_utils.get_node_text(child, parsed.source)
-                        if name not in ("self", "cls") and name not in seen_names:
-                            seen_names.add(name)
-                            total_names += 1
-                            if len(name) <= 2 and name not in ALLOWED_SHORT:
-                                violations += 1
-                                findings.append(Finding(
-                                    message=f"abbreviated parameter '{name}' in {func.name}()",
-                                    line=func.start_line,
-                                    function=func.name,
-                                    severity="info",
-                                ))
-
-        # Check variable assignments in function bodies
-        for func in parsed.get_functions():
-            body = func.node.child_by_field_name("body")
-            if not body:
-                continue
-            for node in ast_utils.walk_tree(body):
-                if node.type == "assignment":
-                    left = node.child_by_field_name("left")
-                    if left and left.type == "identifier":
-                        name = ast_utils.get_node_text(left, parsed.source)
-                        if name not in seen_names:
-                            seen_names.add(name)
-                            total_names += 1
-                            valid, reason = _is_valid_python_name(name, "variable")
-                            if not valid:
-                                violations += 1
-                                findings.append(Finding(
-                                    message=reason,
-                                    line=node.start_point[0] + 1,
-                                    function=func.name,
-                                    severity="warning",
-                                ))
-                            elif len(name) <= 2 and name not in ALLOWED_SHORT:
-                                violations += 1
-                                findings.append(Finding(
-                                    message=f"abbreviated variable '{name}' in {func.name}()",
-                                    line=node.start_point[0] + 1,
-                                    function=func.name,
-                                    severity="info",
-                                ))
+            for checker in (_check_param_names, _check_variable_names):
+                count, viols, new_findings = checker(func, parsed.source, seen_names)
+                total_names += count
+                violations += viols
+                findings.extend(new_findings)
 
         if total_names == 0:
-            return SieveResult(
-                name=self.name,
-                score=10.0,
-                sieve_type=self.sieve_type,
-                summary="No names to check",
-            )
+            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary="No names to check")
 
         violation_ratio = violations / total_names
-        # Score: 10 at 0%, linearly decreasing to 1 at 50%+
-        score = round(max(1.0, 10.0 - (violation_ratio * 18.0)), 1)
-        score = max(1.0, min(10.0, score))
-
+        score = round(max(1.0, min(10.0, 10.0 - violation_ratio * VIOLATION_SCALE)), 1)
         summary = f"{violations} violations in {total_names} names ({violation_ratio:.0%})"
-        return SieveResult(
-            name=self.name,
-            score=score,
-            sieve_type=self.sieve_type,
-            summary=summary,
-            findings=findings,
-        )
+
+        return SieveResult(name=self.name, score=score, sieve_type=self.sieve_type, summary=summary, findings=findings)
