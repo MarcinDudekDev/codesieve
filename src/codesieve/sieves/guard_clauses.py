@@ -25,8 +25,16 @@ def _get_significant_children(body) -> list:
     return significant
 
 
+def _has_elif_or_else(if_node) -> bool:
+    """Check if an if_statement has elif or else branches."""
+    return any(child.type in ("elif_clause", "else_clause") for child in if_node.children)
+
+
 def _needs_guard_clause(func: FunctionInfo) -> bool:
-    """Check if a function wraps its entire body in a single non-trivial if block."""
+    """Check if a function wraps its entire body in a single non-trivial if block.
+
+    Does NOT flag if/elif/else chains — those are idiomatic dispatch patterns.
+    """
     body = func.node.child_by_field_name("body")
     if not body:
         return False
@@ -37,6 +45,10 @@ def _needs_guard_clause(func: FunctionInfo) -> bool:
 
     stmt = significant[0]
     if stmt.type != "if_statement":
+        return False
+
+    # Don't flag if/elif/else — that's a dispatch pattern, not a wrapping guard
+    if _has_elif_or_else(stmt):
         return False
 
     if_lines = stmt.end_point[0] - stmt.start_point[0] + 1

@@ -41,13 +41,26 @@ def _is_constant_assignment(node, source: bytes) -> bool:
     return False
 
 
+def _is_negated(node) -> bool:
+    """Check if a numeric node is the operand of a unary minus."""
+    parent = node.parent
+    return (
+        parent is not None
+        and parent.type == "unary_operator"
+        and any(c.type == "-" for c in parent.children)
+    )
+
+
 def _parse_numeric(node, source: bytes) -> float | None:
-    """Parse a numeric node to its value, returning None on failure."""
+    """Parse a numeric node to its value, accounting for unary minus parent."""
     text = ast_utils.get_node_text(node, source)
     try:
-        return int(text, 0) if node.type == "integer" else float(text)
+        value = int(text, 0) if node.type == "integer" else float(text)
     except ValueError:
         return None
+    if _is_negated(node):
+        value = -value
+    return value
 
 
 class MagicNumbersSieve(BaseSieve):
@@ -85,8 +98,9 @@ class MagicNumbersSieve(BaseSieve):
             value = _parse_numeric(node, source)
             if value is None or value in ALLOWED_NUMBERS:
                 continue
+            display = f"-{ast_utils.get_node_text(node, source)}" if _is_negated(node) else ast_utils.get_node_text(node, source)
             results.append(Finding(
-                message=f"magic number {ast_utils.get_node_text(node, source)} in {func_name}()",
+                message=f"magic number {display} in {func_name}()",
                 line=node.start_point[0] + 1, function=func_name, severity="info",
             ))
         return results

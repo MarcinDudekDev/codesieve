@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import cached_property
 from pathlib import Path
 
 import tree_sitter
@@ -60,7 +61,15 @@ class ParsedFile:
         self.line_count: int = len(self.source_text.splitlines())
 
     def get_functions(self) -> list[FunctionInfo]:
-        """Extract all function/method definitions."""
+        """Extract all function/method definitions (cached)."""
+        return self._functions
+
+    def get_classes(self) -> list[ClassInfo]:
+        """Extract all class definitions (cached)."""
+        return self._classes
+
+    @cached_property
+    def _functions(self) -> list[FunctionInfo]:
         nodes = ast_utils.find_nodes(self.root, self.lang_map.function_types)
         result = []
         for node in nodes:
@@ -68,16 +77,14 @@ class ParsedFile:
             name = ast_utils.get_node_text(name_node, self.source) if name_node else "<anonymous>"
             params = self._count_params(node)
             result.append(FunctionInfo(
-                name=name,
-                node=node,
+                name=name, node=node,
                 line_count=ast_utils.node_line_count(node),
-                param_count=params,
-                start_line=node.start_point[0] + 1,
+                param_count=params, start_line=node.start_point[0] + 1,
             ))
         return result
 
-    def get_classes(self) -> list[ClassInfo]:
-        """Extract all class definitions."""
+    @cached_property
+    def _classes(self) -> list[ClassInfo]:
         nodes = ast_utils.find_nodes(self.root, self.lang_map.class_types)
         result = []
         for node in nodes:
@@ -85,10 +92,8 @@ class ParsedFile:
             name = ast_utils.get_node_text(name_node, self.source) if name_node else "<anonymous>"
             methods = ast_utils.find_nodes(node, self.lang_map.function_types)
             result.append(ClassInfo(
-                name=name,
-                node=node,
-                method_count=len(methods),
-                start_line=node.start_point[0] + 1,
+                name=name, node=node,
+                method_count=len(methods), start_line=node.start_point[0] + 1,
             ))
         return result
 
@@ -128,7 +133,6 @@ class ParsedFile:
             if child.type in ("identifier", "default_parameter", "typed_parameter",
                               "typed_default_parameter", "list_splat_pattern",
                               "dictionary_splat_pattern"):
-                # Skip 'self' and 'cls' for methods
                 if child.type == "identifier":
                     name = ast_utils.get_node_text(child, self.source)
                     if name in ("self", "cls"):

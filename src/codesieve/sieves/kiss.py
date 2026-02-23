@@ -5,7 +5,7 @@ from __future__ import annotations
 from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
-from codesieve.scoring import SCORE_MIN, SCORE_MAX, normalize_score
+from codesieve.scoring import SCORE_MIN, SCORE_MAX
 from codesieve.sieves.base import BaseSieve
 
 # Score thresholds: (upper_bound, score)
@@ -28,9 +28,9 @@ def _score_from_thresholds(value: float, thresholds: list[tuple[int, float]]) ->
 
 
 def cyclomatic_complexity(func_node, lang_map) -> int:
-    """Calculate cyclomatic complexity for a function node."""
+    """Calculate cyclomatic complexity for a function node (not crossing into nested functions)."""
     cc = 1
-    for node in ast_utils.walk_tree(func_node):
+    for node in ast_utils.walk_within_scope(func_node):
         if node.type in lang_map.branch_types:
             cc += 1
     return cc
@@ -48,9 +48,11 @@ class KissSieve(BaseSieve):
 
         findings: list[Finding] = []
         func_scores = []
+        raw_ccs = []
 
         for func in functions:
             cc = cyclomatic_complexity(func.node, parsed.lang_map)
+            raw_ccs.append(cc)
             cc_s = _score_from_thresholds(cc, CC_THRESHOLDS)
             len_s = _score_from_thresholds(func.line_count, LENGTH_THRESHOLDS)
             param_s = _score_from_thresholds(func.param_count, PARAM_THRESHOLDS)
@@ -67,7 +69,6 @@ class KissSieve(BaseSieve):
         avg = sum(func_scores) / len(func_scores)
         score = worst * 0.4 + avg * 0.6
 
-        raw_ccs = [cyclomatic_complexity(f.node, parsed.lang_map) for f in functions]
         avg_raw_cc = sum(raw_ccs) / len(raw_ccs)
         max_len = max(f.line_count for f in functions)
         summary = f"avg CC={avg_raw_cc:.1f}, max fn length={max_len}, {len(functions)} functions"

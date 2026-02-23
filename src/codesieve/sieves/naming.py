@@ -138,10 +138,10 @@ class NamingSieve(BaseSieve):
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         total_names, violations, findings = _check_definition_names(parsed)
 
-        seen_names: set[str] = set()
         for func in parsed.get_functions():
+            seen_in_func: set[str] = set()
             for checker in (_check_param_names, _check_variable_names):
-                count, viols, new_findings = checker(func, parsed.source, seen_names)
+                count, viols, new_findings = checker(func, parsed.source, seen_in_func)
                 total_names += count
                 violations += viols
                 findings.extend(new_findings)
