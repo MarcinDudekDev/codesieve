@@ -21,9 +21,12 @@ def _get_block(except_node):
     return None
 
 
+EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple", "as_pattern")
+
+
 def _is_bare_except(except_node) -> bool:
     """Check if except clause has no exception type specified (AST-based)."""
-    return except_node.child_by_field_name("type") is None
+    return not any(child.type in EXCEPT_TYPE_INDICATORS for child in except_node.children)
 
 
 def _is_empty_body(except_node) -> bool:
