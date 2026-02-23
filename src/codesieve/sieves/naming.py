@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 
-from codesieve.models import SieveResult, SieveType, Finding
+from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.parser import ast_utils
+from codesieve.scoring import SCORE_MAX
 from codesieve.sieves.base import BaseSieve
 
 # Python naming conventions
@@ -132,7 +133,6 @@ def _check_variable_names(func: FunctionInfo, source: bytes, seen: set[str]) -> 
 class NamingSieve(BaseSieve):
     name = "Naming"
     description = "Checks naming convention compliance and abbreviation usage"
-    sieve_type = SieveType.DETERMINISTIC
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
@@ -147,10 +147,10 @@ class NamingSieve(BaseSieve):
                 findings.extend(new_findings)
 
         if total_names == 0:
-            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary="No names to check")
+            return self.perfect("No names to check")
 
         violation_ratio = violations / total_names
-        score = round(max(1.0, min(10.0, 10.0 - violation_ratio * VIOLATION_SCALE)), 1)
+        score = SCORE_MAX - violation_ratio * VIOLATION_SCALE
         summary = f"{violations} violations in {total_names} names ({violation_ratio:.0%})"
 
-        return SieveResult(name=self.name, score=score, sieve_type=self.sieve_type, summary=summary, findings=findings)
+        return self.result(score, summary, findings)

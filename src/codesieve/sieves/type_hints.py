@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from codesieve.models import SieveResult, SieveType, Finding
+from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.parser import ast_utils
+from codesieve.scoring import SCORE_MIN, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve
 
 SKIP_NAMES = ("self", "cls")
@@ -61,13 +62,12 @@ def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Fin
 class TypeHintsSieve(BaseSieve):
     name = "TypeHints"
     description = "Measures type annotation coverage on function parameters and return types"
-    sieve_type = SieveType.DETERMINISTIC
     default_weight = 0.08
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         functions = parsed.get_functions()
         if not functions:
-            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary="No functions found")
+            return self.perfect("No functions found")
 
         findings: list[Finding] = []
         total_params = 0
@@ -92,10 +92,7 @@ class TypeHintsSieve(BaseSieve):
         denominator = total_params + total_functions
         coverage = (annotated_params + annotated_returns) / denominator if denominator else 1.0
 
-        score = round(max(1.0, min(10.0, 1 + 9 * coverage)), 1)
+        score = SCORE_MIN + SCORE_RANGE * coverage
         summary = f"{coverage:.0%} type coverage ({annotated_params}/{total_params} params, {annotated_returns}/{total_functions} returns)"
 
-        return SieveResult(
-            name=self.name, score=score, sieve_type=self.sieve_type,
-            summary=summary, findings=findings,
-        )
+        return self.result(score, summary, findings)

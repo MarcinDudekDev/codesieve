@@ -4,6 +4,16 @@ from __future__ import annotations
 
 from codesieve.models import SieveResult, Grade
 
+# Score bounds — all sieves normalize to this range
+SCORE_MIN = 1.0
+SCORE_MAX = 10.0
+SCORE_RANGE = SCORE_MAX - SCORE_MIN  # 9.0
+
+
+def normalize_score(raw: float) -> float:
+    """Clamp and round a raw score to the valid range."""
+    return round(max(SCORE_MIN, min(SCORE_MAX, raw)), 1)
+
 
 # Default sieve weights
 DEFAULT_WEIGHTS: dict[str, float] = {
@@ -51,4 +61,4 @@ def weighted_average(results: list[SieveResult], weights: dict[str, float] | Non
         return round(sum(r.score for r in active_results) / len(active_results), 1)
 
     score = sum(r.score * (w.get(r.name, 0.0) / total_active_weight) for r in active_results)
-    return round(max(1.0, min(10.0, score)), 1)
+    return normalize_score(score)

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from codesieve.models import SieveResult, SieveType, Finding
+from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
+from codesieve.scoring import SCORE_MAX, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve
 
 DOCSTRING_TYPES = ("string", "concatenated_string")
@@ -45,13 +46,12 @@ def _needs_guard_clause(func: FunctionInfo) -> bool:
 class GuardClausesSieve(BaseSieve):
     name = "GuardClauses"
     description = "Detects functions wrapping entire body in a single if block instead of using early returns"
-    sieve_type = SieveType.DETERMINISTIC
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         functions = parsed.get_functions()
         if not functions:
-            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary="No functions found")
+            return self.perfect("No functions found")
 
         findings: list[Finding] = []
         flagged = 0
@@ -66,10 +66,7 @@ class GuardClausesSieve(BaseSieve):
 
         total = len(functions)
         ratio = flagged / total if total else 0.0
-        score = round(max(1.0, 10.0 - 9.0 * ratio), 1)
+        score = SCORE_MAX - SCORE_RANGE * ratio
         summary = f"{flagged}/{total} functions should use guard clauses" if flagged else "all functions use good return patterns"
 
-        return SieveResult(
-            name=self.name, score=score, sieve_type=self.sieve_type,
-            summary=summary, findings=findings,
-        )
+        return self.result(score, summary, findings)

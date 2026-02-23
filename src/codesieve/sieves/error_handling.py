@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from codesieve.models import SieveResult, SieveType, Finding
+from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
+from codesieve.scoring import SCORE_MAX
 from codesieve.sieves.base import BaseSieve
 
 BARE_EXCEPT_PENALTY = 1.5
@@ -76,7 +77,6 @@ def _check_except_clause(clause, source: bytes) -> list[tuple[str, float, str]]:
 class ErrorHandlingSieve(BaseSieve):
     name = "ErrorHandling"
     description = "Measures error handling quality: bare excepts, empty handlers, broad catches"
-    sieve_type = SieveType.DETERMINISTIC
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
@@ -85,10 +85,10 @@ class ErrorHandlingSieve(BaseSieve):
         if not try_nodes:
             count = len(parsed.get_functions())
             msg = f"No try blocks in {count} functions" if count else "No functions or try blocks found"
-            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary=msg)
+            return self.perfect(msg)
 
         findings: list[Finding] = []
-        score = 10.0
+        score = SCORE_MAX
         counts = {"bare": 0, "empty": 0, "broad": 0}
         count_keys = {"bare except": "bare", "empty except": "empty", "broad": "broad"}
 
@@ -105,13 +105,8 @@ class ErrorHandlingSieve(BaseSieve):
                             counts[key] += 1
                             break
 
-        score = round(max(1.0, min(10.0, score)), 1)
         summary = self._build_summary(counts, len(try_nodes))
-
-        return SieveResult(
-            name=self.name, score=score, sieve_type=self.sieve_type,
-            summary=summary, findings=findings,
-        )
+        return self.result(score, summary, findings)
 
     def _build_summary(self, counts: dict[str, int], try_count: int) -> str:
         parts = []

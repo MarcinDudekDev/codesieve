@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import re
 
-from codesieve.models import SieveResult, SieveType, Finding
+from codesieve.models import Finding
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
+from codesieve.scoring import SCORE_MAX
 from codesieve.sieves.base import BaseSieve
 
 ALLOWED_NUMBERS = {0, 1, -1, 2, 0.0, 1.0, 100, 1000}
@@ -31,7 +32,6 @@ def _is_default_param(node) -> bool:
 def _is_constant_assignment(node, source: bytes) -> bool:
     """Check if this numeric node is assigned to an UPPER_SNAKE variable."""
     parent = node.parent
-    # Handle unary operator wrapping: CONSTANT = -42
     if parent and parent.type == "unary_operator":
         parent = parent.parent
     if parent and parent.type == "assignment":
@@ -53,13 +53,12 @@ def _parse_numeric(node, source: bytes) -> float | None:
 class MagicNumbersSieve(BaseSieve):
     name = "MagicNumbers"
     description = "Detects unexplained numeric literals (magic numbers) in function bodies"
-    sieve_type = SieveType.DETERMINISTIC
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         functions = parsed.get_functions()
         if not functions:
-            return SieveResult(name=self.name, score=10.0, sieve_type=self.sieve_type, summary="No functions found")
+            return self.perfect("No functions found")
 
         findings: list[Finding] = []
 
@@ -70,13 +69,10 @@ class MagicNumbersSieve(BaseSieve):
             findings.extend(self._check_body(func.name, body, parsed.source))
 
         magic_count = len(findings)
-        score = round(max(1.0, 10.0 - PENALTY_PER_MAGIC * magic_count), 1)
+        score = SCORE_MAX - PENALTY_PER_MAGIC * magic_count
         summary = f"{magic_count} magic number(s) found" if magic_count else "no magic numbers"
 
-        return SieveResult(
-            name=self.name, score=score, sieve_type=self.sieve_type,
-            summary=summary, findings=findings,
-        )
+        return self.result(score, summary, findings)
 
     def _check_body(self, func_name: str, body, source: bytes) -> list[Finding]:
         """Find magic numbers in a function body."""
