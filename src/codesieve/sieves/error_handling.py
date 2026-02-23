@@ -49,10 +49,16 @@ def _is_empty_body(except_node) -> bool:
 
 def _is_broad_without_reraise(except_node, source: bytes) -> bool:
     """Check if except catches Exception broadly without re-raising."""
-    catches_exception = any(
-        child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception"
-        for child in except_node.children
-    )
+    catches_exception = False
+    for child in except_node.children:
+        if child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception":
+            catches_exception = True
+            break
+        if child.type == "as_pattern" and child.children:
+            first = child.children[0]
+            if first.type == "identifier" and ast_utils.get_node_text(first, source) == "Exception":
+                catches_exception = True
+                break
     if not catches_exception:
         return False
 
