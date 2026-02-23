@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from codesieve.models import Finding
+from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MAX
@@ -65,6 +65,24 @@ def _check_definition_names(parsed: ParsedFile) -> tuple[int, int, list[Finding]
     return total, violations, findings
 
 
+PARAM_NODE_TYPES = ("identifier", "default_parameter", "typed_parameter",
+                     "typed_default_parameter", "list_splat_pattern", "dictionary_splat_pattern")
+
+
+def _extract_param_name(child, source: bytes) -> str | None:
+    """Extract the actual parameter name from a parameter node."""
+    if child.type == "identifier":
+        return ast_utils.get_node_text(child, source)
+    if child.type in ("default_parameter", "typed_parameter", "typed_default_parameter"):
+        name_child = child.child_by_field_name("name") or (child.children[0] if child.children else None)
+        return ast_utils.get_node_text(name_child, source) if name_child else None
+    if child.type in ("list_splat_pattern", "dictionary_splat_pattern"):
+        for sub in child.children:
+            if sub.type == "identifier":
+                return ast_utils.get_node_text(sub, source)
+    return None
+
+
 def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str]) -> tuple[int, int, list[Finding]]:
     """Check parameter names for abbreviations. Returns (total, violations, findings)."""
     params_node = func.node.child_by_field_name("parameters")
@@ -75,11 +93,11 @@ def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str]) -> tup
     violations = 0
     findings: list[Finding] = []
 
-    for child in ast_utils.walk_tree(params_node):
-        if child.type != "identifier":
+    for child in params_node.children:
+        if child.type not in PARAM_NODE_TYPES:
             continue
-        name = ast_utils.get_node_text(child, source)
-        if name in SKIP_NAMES or name in seen:
+        name = _extract_param_name(child, source)
+        if not name or name in SKIP_NAMES or name in seen:
             continue
         seen.add(name)
         total += 1
@@ -103,7 +121,7 @@ def _check_variable_names(func: FunctionInfo, source: bytes, seen: set[str]) -> 
     violations = 0
     findings: list[Finding] = []
 
-    for node in ast_utils.walk_tree(body):
+    for node in ast_utils.walk_within_scope(body):
         if node.type != "assignment":
             continue
         left = node.child_by_field_name("left")

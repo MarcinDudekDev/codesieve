@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from codesieve.models import Finding
+from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MAX
@@ -90,7 +90,7 @@ class MagicNumbersSieve(BaseSieve):
     def _check_body(self, func_name: str, body, source: bytes) -> list[Finding]:
         """Find magic numbers in a function body."""
         results = []
-        for node in ast_utils.walk_tree(body):
+        for node in ast_utils.walk_within_scope(body):
             if node.type not in NUMERIC_TYPES:
                 continue
             if _is_default_param(node) or _is_constant_assignment(node, source):

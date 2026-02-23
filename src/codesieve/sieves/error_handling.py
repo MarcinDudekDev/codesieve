@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codesieve.models import Finding
+from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MAX
@@ -21,11 +21,9 @@ def _get_block(except_node):
     return None
 
 
-def _is_bare_except(except_node, source: bytes) -> bool:
-    """Check if except clause has no exception type specified."""
-    text = ast_utils.get_node_text(except_node, source)
-    first_line = text.split("\n")[0].strip()
-    return first_line == "except:"
+def _is_bare_except(except_node) -> bool:
+    """Check if except clause has no exception type specified (AST-based)."""
+    return except_node.child_by_field_name("type") is None
 
 
 def _is_empty_body(except_node) -> bool:
@@ -65,7 +63,7 @@ def _is_broad_without_reraise(except_node, source: bytes) -> bool:
 def _check_except_clause(clause, source: bytes) -> list[tuple[str, float, str]]:
     """Check a single except clause for issues. Returns list of (message, penalty, severity)."""
     issues = []
-    if _is_bare_except(clause, source):
+    if _is_bare_except(clause):
         issues.append(("bare except: clause (no exception type)", BARE_EXCEPT_PENALTY, "error"))
     if _is_empty_body(clause):
         issues.append(("empty except body (pass/...)", EMPTY_BODY_PENALTY, "warning"))

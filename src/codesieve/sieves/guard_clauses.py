@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codesieve.models import Finding
+from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.scoring import SCORE_MAX, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve

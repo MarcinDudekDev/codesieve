@@ -31,17 +31,13 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
 
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
     """Collect all supported files from a path, respecting exclusions."""
-    import fnmatch
-
     if path.is_file():
         lang = detect_language(str(path))
         return [path] if lang else []
 
     files = []
     for p in sorted(path.rglob("*.py")):
-        # Check exclusions
-        rel = str(p)
-        if any(fnmatch.fnmatch(rel, pat) for pat in exclude):
+        if any(p.match(pat) for pat in exclude):
             continue
         if detect_language(str(p)):
             files.append(p)

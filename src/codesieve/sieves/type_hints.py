@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from codesieve.models import Finding
+from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MIN, SCORE_RANGE
@@ -54,7 +54,15 @@ def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Fin
                 line=func.start_line, function=func.name, severity="info",
             ))
         elif child.type in SPLAT_TYPES:
+            name = _get_param_name(child, source)
+            if name is None:
+                continue
             total += 1
+            prefix = "*" if child.type == "list_splat_pattern" else "**"
+            findings.append(Finding(
+                message=f"parameter '{prefix}{name}' in {func.name}() missing type hint",
+                line=func.start_line, function=func.name, severity="info",
+            ))
 
     return total, annotated, findings
 
