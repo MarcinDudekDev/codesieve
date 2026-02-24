@@ -21,7 +21,7 @@ def _get_block(except_node):
     return None
 
 
-EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple", "as_pattern")
+EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple")
 
 
 def _is_bare_except(except_node) -> bool:
@@ -65,16 +65,10 @@ def _has_raise_in_scope(block) -> bool:
 
 def _is_broad_without_reraise(except_node, source: bytes) -> bool:
     """Check if except catches Exception broadly without re-raising."""
-    catches_exception = False
-    for child in except_node.children:
-        if child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception":
-            catches_exception = True
-            break
-        if child.type == "as_pattern" and child.children:
-            first = child.children[0]
-            if first.type == "identifier" and ast_utils.get_node_text(first, source) == "Exception":
-                catches_exception = True
-                break
+    catches_exception = any(
+        child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception"
+        for child in except_node.children
+    )
     if not catches_exception:
         return False
 
