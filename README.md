@@ -2,7 +2,7 @@
 
 **Deterministic code quality grading for AI coding workflows.**
 
-CodeSieve runs 7 principle-based sieves against your Python code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
+CodeSieve runs 8 principle-based sieves against your Python and PHP code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
 
 Built for the AI-assisted coding loop: let your agent write code, then grade it automatically before committing. Works as a CLI tool, CI gate, or quality feedback signal for any AI coding agent.
 
@@ -14,11 +14,12 @@ Traditional linters focus on style. CodeSieve focuses on **design principles** -
 |-------|-----------------|
 | **KISS** | Cyclomatic complexity, function length, parameter count |
 | **Nesting** | Max and average nesting depth of control flow |
-| **Naming** | PascalCase/snake_case compliance, abbreviated names |
+| **Naming** | Convention compliance (PEP 8 for Python, PSR-1/PSR-12 for PHP), abbreviated names |
 | **ErrorHandling** | Bare excepts, empty handlers, broad catches without re-raise |
-| **TypeHints** | Type annotation coverage on parameters and return types |
+| **TypeHints** | Type annotation coverage, `declare(strict_types=1)` for PHP (PSR-12) |
 | **MagicNumbers** | Unexplained numeric literals in function bodies |
 | **GuardClauses** | Functions wrapping entire body in a single if-block |
+| **DeprecatedAPI** | Calls to deprecated/removed PHP functions with replacement suggestions |
 
 Each sieve produces a score from 1.0 (worst) to 10.0 (best), specific findings with line numbers, and an actionable summary. Scores are weighted and combined into an aggregate grade.
 
@@ -33,10 +34,11 @@ Requires Python 3.10+.
 ## Usage
 
 ```bash
-# Scan a single file
+# Scan a single file (Python or PHP)
 codesieve scan app.py
+codesieve scan index.php
 
-# Scan a directory
+# Scan a directory (picks up .py and .php files)
 codesieve scan src/
 
 # JSON output for CI pipelines
@@ -66,10 +68,20 @@ codesieve sieves
 | TypeHints       |   9.5   | determ.    | 94% type coverage (11/12 params)     |
 | MagicNumbers    |  10.0   | determ.    | no magic numbers                     |
 | GuardClauses    |  10.0   | determ.    | all functions use good return patterns|
+| DeprecatedAPI   |  10.0   | determ.    | No deprecated API calls found        |
 +-----------------+---------+------------+--------------------------------------+
-| AGGREGATE       |   8.7   |            | Grade: A                             |
+| AGGREGATE       |   8.9   |            | Grade: A                             |
 +-----------------+---------+------------+--------------------------------------+
 ```
+
+## PHP Support
+
+CodeSieve understands PHP idioms and enforces established standards:
+
+- **PSR-1 naming**: camelCase methods, PascalCase classes, UPPER_SNAKE constants -- with standard citations in findings
+- **PSR-12 strict types**: flags files missing `declare(strict_types=1)`
+- **Error handling**: detects empty catch blocks, broad `\Exception`/`\Throwable` catches without re-throw
+- **Deprecated API detection**: 24 deprecated/removed functions (mysql_*, ereg*, `each()`, `create_function()`, `utf8_encode()`, `strftime()`) with specific replacement suggestions and PHP version references
 
 ## Configuration
 
@@ -84,6 +96,7 @@ codesieve init
 exclude:
   - "**/.venv/**"
   - "**/migrations/**"
+  - "**/vendor/**"
 
 weights:
   KISS: 0.20
@@ -93,6 +106,7 @@ weights:
   TypeHints: 0.08
   MagicNumbers: 0.05
   GuardClauses: 0.05
+  DeprecatedAPI: 0.05
 
 fail_under: 7.0
 ```
@@ -111,18 +125,19 @@ The JSON output (`--format json`) gives structured feedback that any AI agent ca
 
 ## Language Support
 
-| Language | Status |
-|----------|--------|
-| Python | Supported |
-| PHP | Planned |
-| JavaScript/TypeScript | Planned |
-| Go | Planned |
+| Language | Status | Standards |
+|----------|--------|-----------|
+| Python | Supported | PEP 8 |
+| PHP | Supported | PSR-1, PSR-12 |
+| JavaScript/TypeScript | Planned | |
+| Go | Planned | |
 
 CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making new language support straightforward -- each language needs its own sieve implementations that understand the language's idioms and conventions.
 
 ## Roadmap
 
-- [ ] PHP support (next up)
+- [x] Python support (7 sieves)
+- [x] PHP support (8 sieves, PSR-1/PSR-12 enforcement, deprecated API detection)
 - [ ] JavaScript/TypeScript support
 - [ ] `--watch` mode for continuous feedback
 - [ ] GitHub Actions integration
