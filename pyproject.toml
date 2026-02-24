@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "codesieve"
 version = "0.1.0"
-description = "Grade code through 7 principle-based sieves (KISS, DRY, SRP, Naming, Nesting, Complexity, Comments)"
+description = "Deterministic code quality grading for AI coding workflows. 7 principle-based sieves powered by tree-sitter."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "Marcin Dudek", email = "marcin.dudek.dev@gmail.com" }]
-keywords = ["code-quality", "static-analysis", "linting", "KISS", "DRY", "SRP"]
+keywords = ["code-quality", "static-analysis", "ai-coding", "tree-sitter", "code-grading", "deterministic"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
