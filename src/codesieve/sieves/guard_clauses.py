@@ -33,6 +33,8 @@ def _has_elif_or_else(if_node, language: str) -> bool:
     """Check if an if_statement has elif/elseif or else branches."""
     if language == "php":
         return any(child.type in ("else_if_clause", "else_clause") for child in if_node.children)
+    if language in ("javascript", "typescript"):
+        return any(child.type == "else_clause" for child in if_node.children)
     return any(child.type in ("elif_clause", "else_clause") for child in if_node.children)
 
 

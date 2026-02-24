@@ -61,15 +61,64 @@ PHP = LanguageMap(
     file_extension=".php",
 )
 
+JAVASCRIPT = LanguageMap(
+    function_types=("function_declaration", "method_definition", "arrow_function",
+                    "generator_function_declaration", "function_expression"),
+    class_types=("class_declaration",),
+    parameter_types=("identifier", "assignment_pattern", "rest_pattern",
+                     "object_pattern", "array_pattern"),
+    branch_types=(
+        "if_statement", "for_statement", "for_in_statement",
+        "while_statement", "do_statement", "catch_clause", "switch_case",
+        "ternary_expression",
+    ),
+    nesting_types=(
+        "if_statement", "for_statement", "for_in_statement",
+        "while_statement", "do_statement", "try_statement", "catch_clause",
+        "switch_statement",
+    ),
+    comment_types=("comment",),
+    string_types=("string", "template_string"),
+    name_field="name",
+    file_extension=".js",
+)
+
+TYPESCRIPT = LanguageMap(
+    function_types=("function_declaration", "method_definition", "arrow_function",
+                    "generator_function_declaration", "function_expression"),
+    class_types=("class_declaration",),
+    parameter_types=("required_parameter", "optional_parameter"),
+    branch_types=(
+        "if_statement", "for_statement", "for_in_statement",
+        "while_statement", "do_statement", "catch_clause", "switch_case",
+        "ternary_expression",
+    ),
+    nesting_types=(
+        "if_statement", "for_statement", "for_in_statement",
+        "while_statement", "do_statement", "try_statement", "catch_clause",
+        "switch_statement",
+    ),
+    comment_types=("comment",),
+    string_types=("string", "template_string"),
+    name_field="name",
+    file_extension=".ts",
+)
+
 LANGUAGE_REGISTRY: dict[str, LanguageMap] = {
     "python": PYTHON,
     "php": PHP,
+    "javascript": JAVASCRIPT,
+    "typescript": TYPESCRIPT,
 }
 
 
 def detect_language(filepath: str) -> str | None:
     """Detect language from file extension."""
-    ext_map = {".py": "python", ".js": "javascript", ".php": "php"}
+    ext_map = {
+        ".py": "python", ".php": "php",
+        ".js": "javascript", ".jsx": "javascript",
+        ".ts": "typescript", ".tsx": "typescript",
+    }
     from pathlib import Path
     ext = Path(filepath).suffix
     return ext_map.get(ext)

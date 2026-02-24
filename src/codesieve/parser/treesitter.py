@@ -9,6 +9,8 @@ from pathlib import Path
 import tree_sitter
 import tree_sitter_python as tspython
 import tree_sitter_php as tsphp
+import tree_sitter_javascript as tsjs
+import tree_sitter_typescript as tsts
 
 from codesieve.parser.languages import LanguageMap, LANGUAGE_REGISTRY, detect_language
 from codesieve.parser import ast_utils
@@ -16,11 +18,18 @@ from codesieve.parser import ast_utils
 
 PY_LANGUAGE = tree_sitter.Language(tspython.language())
 PHP_LANGUAGE = tree_sitter.Language(tsphp.language_php())
+JS_LANGUAGE = tree_sitter.Language(tsjs.language())
+TS_LANGUAGE = tree_sitter.Language(tsts.language_typescript())
+TSX_LANGUAGE = tree_sitter.Language(tsts.language_tsx())
 
 PARSERS: dict[str, tree_sitter.Parser] = {
     "python": tree_sitter.Parser(PY_LANGUAGE),
     "php": tree_sitter.Parser(PHP_LANGUAGE),
+    "javascript": tree_sitter.Parser(JS_LANGUAGE),
+    "typescript": tree_sitter.Parser(TS_LANGUAGE),
 }
+
+TSX_PARSER = tree_sitter.Parser(TSX_LANGUAGE)
 
 
 @dataclass
@@ -58,7 +67,12 @@ class ParsedFile:
         self.lang_map: LanguageMap = LANGUAGE_REGISTRY[self.language]
         self.source: bytes = Path(filepath).read_bytes()
         self.source_text: str = self.source.decode("utf-8", errors="replace")
-        self.tree: tree_sitter.Tree = PARSERS[self.language].parse(self.source)
+        # TSX files need a separate parser
+        if self.language == "typescript" and filepath.endswith(".tsx"):
+            parser = TSX_PARSER
+        else:
+            parser = PARSERS[self.language]
+        self.tree: tree_sitter.Tree = parser.parse(self.source)
         self.root: tree_sitter.Node = self.tree.root_node
         self.line_count: int = len(self.source_text.splitlines())
 
@@ -132,6 +146,10 @@ class ParsedFile:
             return 0
         if self.language == "php":
             return self._count_params_php(params_node)
+        if self.language == "javascript":
+            return self._count_params_js(params_node)
+        if self.language == "typescript":
+            return self._count_params_ts(params_node)
         return self._count_params_python(params_node)
 
     def _count_params_python(self, params_node: tree_sitter.Node) -> int:
@@ -157,5 +175,22 @@ class ParsedFile:
         count = 0
         for child in params_node.children:
             if child.type in ("simple_parameter", "variadic_parameter"):
+                count += 1
+        return count
+
+    def _count_params_js(self, params_node: tree_sitter.Node) -> int:
+        """Count JS parameters: identifier, assignment_pattern, rest_pattern, destructuring."""
+        count = 0
+        for child in params_node.children:
+            if child.type in ("identifier", "assignment_pattern", "rest_pattern",
+                              "object_pattern", "array_pattern"):
+                count += 1
+        return count
+
+    def _count_params_ts(self, params_node: tree_sitter.Node) -> int:
+        """Count TS parameters: required_parameter, optional_parameter."""
+        count = 0
+        for child in params_node.children:
+            if child.type in ("required_parameter", "optional_parameter"):
                 count += 1
         return count

@@ -13,7 +13,7 @@ from codesieve.sieves.base import BaseSieve
 ALLOWED_NUMBERS = {0, 1, -1, 2, 0.0, 1.0, 100, 1000}
 UPPER_SNAKE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 PENALTY_PER_MAGIC = 0.5
-NUMERIC_TYPES = ("integer", "float")
+NUMERIC_TYPES = ("integer", "float", "number")  # JS/TS use "number" for all numerics
 
 
 def _is_default_param_python(node) -> bool:
@@ -94,11 +94,73 @@ def _is_negated_php(node) -> bool:
     )
 
 
+def _is_default_param_js(node) -> bool:
+    """Check if this numeric node is a JS default parameter value (assignment_pattern in formal_parameters)."""
+    parent = node.parent
+    while parent:
+        if parent.type == "assignment_pattern" and parent.parent and parent.parent.type == "formal_parameters":
+            return True
+        if parent.type in ("function_declaration", "method_definition",
+                           "arrow_function", "generator_function_declaration",
+                           "class_declaration"):
+            break
+        parent = parent.parent
+    return False
+
+
+def _is_default_param_ts(node) -> bool:
+    """Check if this numeric node is a TS default parameter value (required_parameter with value field)."""
+    parent = node.parent
+    while parent:
+        if parent.type in ("required_parameter", "optional_parameter"):
+            return True
+        if parent.type in ("function_declaration", "method_definition",
+                           "arrow_function", "generator_function_declaration",
+                           "class_declaration"):
+            break
+        parent = parent.parent
+    return False
+
+
+def _is_constant_assignment_js(node, source: bytes) -> bool:
+    """Check if this numeric node is a JS/TS const with UPPER_SNAKE name, or in a top-level const."""
+    parent = node.parent
+    if parent and parent.type == "unary_expression":
+        parent = parent.parent
+    # variable_declarator inside lexical_declaration (const)
+    if parent and parent.type == "variable_declarator":
+        grandparent = parent.parent
+        if grandparent and grandparent.type == "lexical_declaration":
+            # Check if it's a const declaration
+            has_const = any(c.type == "const" for c in grandparent.children)
+            if has_const:
+                name_node = parent.child_by_field_name("name")
+                if name_node and name_node.type == "identifier":
+                    return bool(UPPER_SNAKE.match(ast_utils.get_node_text(name_node, source)))
+    return False
+
+
+def _is_negated_js(node) -> bool:
+    """Check if a numeric node is the operand of a JS/TS unary minus."""
+    parent = node.parent
+    return (
+        parent is not None
+        and parent.type == "unary_expression"
+        and any(c.type == "-" for c in parent.children)
+    )
+
+
 def _parse_numeric(node, source: bytes, is_negated_fn) -> float | None:
     """Parse a numeric node to its value, accounting for unary minus parent."""
     text = ast_utils.get_node_text(node, source)
     try:
-        value = int(text, 0) if node.type == "integer" else float(text)
+        if node.type == "integer":
+            value = int(text, 0)
+        elif node.type == "number":
+            # JS/TS "number" can be int or float
+            value = float(text) if "." in text or "e" in text.lower() else int(text, 0)
+        else:
+            value = float(text)
     except (ValueError, OverflowError):
         return None
     if is_negated_fn(node):
@@ -120,6 +182,14 @@ class MagicNumbersSieve(BaseSieve):
             is_default = _is_default_param_php
             is_const = _is_constant_assignment_php
             is_neg = _is_negated_php
+        elif parsed.language == "javascript":
+            is_default = _is_default_param_js
+            is_const = _is_constant_assignment_js
+            is_neg = _is_negated_js
+        elif parsed.language == "typescript":
+            is_default = _is_default_param_ts
+            is_const = _is_constant_assignment_js  # Same const pattern for TS
+            is_neg = _is_negated_js  # Same unary_expression for TS
         else:
             is_default = _is_default_param_python
             is_const = _is_constant_assignment_python

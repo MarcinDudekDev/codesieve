@@ -79,17 +79,42 @@ def _get_catch_type_text(catch_node, source: bytes) -> str | None:
     return None
 
 
+# ---- JS/TS-specific helpers ----
+
+def _get_catch_body_js(catch_node):
+    """Extract the statement_block body from a JS/TS catch clause."""
+    return catch_node.child_by_field_name("body")
+
+
+def _is_empty_body_js(catch_node) -> bool:
+    """Check if JS/TS catch body is empty (only braces, whitespace, comments)."""
+    body = _get_catch_body_js(catch_node)
+    if body is None:
+        return False
+    significant = [c for c in body.children if c.type not in ("comment", "{", "}")]
+    return len(significant) == 0
+
+
 # ---- Shared helpers ----
 
 _RAISE_SKIP_TYPES_PYTHON = ("function_definition", "except_clause")
 _RAISE_SKIP_TYPES_PHP = ("function_definition", "method_declaration", "anonymous_function",
                          "arrow_function", "catch_clause")
+_RAISE_SKIP_TYPES_JS = ("function_declaration", "method_definition", "arrow_function",
+                        "generator_function_declaration", "function_expression", "catch_clause")
 
 
 def _has_raise_in_scope(block, language: str) -> bool:
     """Check if block contains a raise/throw, not crossing into nested handlers or functions."""
-    raise_type = "throw_expression" if language == "php" else "raise_statement"
-    skip_types = _RAISE_SKIP_TYPES_PHP if language == "php" else _RAISE_SKIP_TYPES_PYTHON
+    if language in ("javascript", "typescript"):
+        raise_type = "throw_statement"
+        skip_types = _RAISE_SKIP_TYPES_JS
+    elif language == "php":
+        raise_type = "throw_expression"
+        skip_types = _RAISE_SKIP_TYPES_PHP
+    else:
+        raise_type = "raise_statement"
+        skip_types = _RAISE_SKIP_TYPES_PYTHON
 
     stack = list(reversed(block.children))
     while stack:
@@ -107,6 +132,9 @@ def _has_raise_in_scope(block, language: str) -> bool:
 
 def _is_broad_catch(handler_node, source: bytes, language: str) -> bool:
     """Check if handler catches broad exception without re-raising."""
+    # JS/TS catches are untyped by design — no broad catch concept
+    if language in ("javascript", "typescript"):
+        return False
     broad_types = BROAD_EXCEPTIONS.get(language, set())
 
     if language == "php":
@@ -138,6 +166,9 @@ def _check_handler(handler_node, source: bytes, language: str) -> list[tuple[str
             issues.append(("bare except: clause (no exception type)", BARE_EXCEPT_PENALTY, "error"))
         if _is_empty_body_python(handler_node):
             issues.append(("empty except body (pass/...)", EMPTY_BODY_PENALTY, "warning"))
+    elif language in ("javascript", "typescript"):
+        if _is_empty_body_js(handler_node):
+            issues.append(("empty catch body", EMPTY_BODY_PENALTY, "warning"))
     else:
         # PHP catch clauses always require a type — no "bare catch" possible
         if _is_empty_body_php(handler_node):
@@ -163,7 +194,10 @@ class ErrorHandlingSieve(BaseSieve):
             msg = f"No try blocks in {count} functions" if count else "No functions or try blocks found"
             return self.perfect(msg)
 
-        handler_type = "catch_clause" if parsed.language == "php" else "except_clause"
+        if parsed.language == "python":
+            handler_type = "except_clause"
+        else:
+            handler_type = "catch_clause"  # PHP, JS, TS all use catch_clause
 
         findings: list[Finding] = []
         score = SCORE_MAX

@@ -31,7 +31,7 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
 }
 
 
-_SUPPORTED_GLOBS = ("*.py", "*.php")
+_SUPPORTED_GLOBS = ("*.py", "*.php", "*.js", "*.jsx", "*.ts", "*.tsx")
 
 
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:

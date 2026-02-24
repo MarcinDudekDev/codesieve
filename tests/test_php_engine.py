@@ -33,11 +33,13 @@ def test_scan_php_directory():
 
 
 def test_scan_mixed_directory():
-    """Scanning a directory with both Python and PHP files."""
+    """Scanning a directory with Python, PHP, JS, and TS files."""
     config = Config()
     fixtures_root = Path(__file__).parent / "fixtures"
     report = scan(fixtures_root, config)
     languages = {r.language for r in report.file_reports}
     assert "python" in languages
     assert "php" in languages
-    assert len(report.file_reports) == 4  # 2 python + 2 php
+    assert "javascript" in languages
+    assert "typescript" in languages
+    assert len(report.file_reports) == 8  # 2 python + 2 php + 2 js + 2 ts

@@ -10,6 +10,9 @@ FUNCTION_BOUNDARY_TYPES = (
     "function_definition", "class_definition",
     # PHP-specific
     "method_declaration", "anonymous_function", "arrow_function", "class_declaration",
+    # JS/TS-specific
+    "function_declaration", "method_definition", "generator_function_declaration",
+    "function_expression",
 )
 
 
