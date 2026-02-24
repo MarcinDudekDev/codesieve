@@ -6,7 +6,7 @@ from typing import Iterator
 
 import tree_sitter
 
-FUNCTION_BOUNDARY_TYPES = ("function_definition",)
+FUNCTION_BOUNDARY_TYPES = ("function_definition", "class_definition")
 
 
 def walk_tree(node: tree_sitter.Node) -> Iterator[tree_sitter.Node]:
