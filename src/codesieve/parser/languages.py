@@ -41,8 +41,29 @@ PYTHON = LanguageMap(
     file_extension=".py",
 )
 
+PHP = LanguageMap(
+    function_types=("function_definition", "method_declaration", "anonymous_function", "arrow_function"),
+    class_types=("class_declaration",),
+    parameter_types=("simple_parameter", "variadic_parameter"),
+    branch_types=(
+        "if_statement", "else_if_clause", "for_statement", "foreach_statement",
+        "while_statement", "do_statement", "catch_clause", "case_statement",
+        "conditional_expression",  # ternary
+        "match_expression",
+    ),
+    nesting_types=(
+        "if_statement", "for_statement", "foreach_statement", "while_statement",
+        "do_statement", "try_statement", "catch_clause", "switch_statement",
+    ),
+    comment_types=("comment",),
+    string_types=("string", "encapsed_string"),
+    name_field="name",
+    file_extension=".php",
+)
+
 LANGUAGE_REGISTRY: dict[str, LanguageMap] = {
     "python": PYTHON,
+    "php": PHP,
 }
 
 

@@ -6,7 +6,11 @@ from typing import Iterator
 
 import tree_sitter
 
-FUNCTION_BOUNDARY_TYPES = ("function_definition", "class_definition")
+FUNCTION_BOUNDARY_TYPES = (
+    "function_definition", "class_definition",
+    # PHP-specific
+    "method_declaration", "anonymous_function", "arrow_function", "class_declaration",
+)
 
 
 def walk_tree(node: tree_sitter.Node) -> Iterator[tree_sitter.Node]:

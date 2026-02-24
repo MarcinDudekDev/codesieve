@@ -8,34 +8,41 @@ from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MIN, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve
 
-SKIP_NAMES = ("self", "cls")
-TYPED_PARAM_TYPES = ("typed_parameter", "typed_default_parameter")
-UNTYPED_PARAM_TYPES = ("identifier", "default_parameter")
-SPLAT_TYPES = ("list_splat_pattern", "dictionary_splat_pattern")
+# Python param types
+PY_SKIP_NAMES = ("self", "cls")
+PY_TYPED_PARAM_TYPES = ("typed_parameter", "typed_default_parameter")
+PY_UNTYPED_PARAM_TYPES = ("identifier", "default_parameter")
+PY_SPLAT_TYPES = ("list_splat_pattern", "dictionary_splat_pattern")
+
+# PHP param types
+PHP_PARAM_TYPES = ("simple_parameter", "variadic_parameter")
+
+# PHP strict_types penalty — PSR-12 §2.1 recommends declare(strict_types=1)
+STRICT_TYPES_PENALTY = 1.5
 
 
-def _get_param_name(child, source: bytes) -> str | None:
-    """Extract parameter name, returning None for self/cls."""
+def _get_param_name_python(child, source: bytes) -> str | None:
+    """Extract Python parameter name, returning None for self/cls."""
     if child.type == "identifier":
         name = ast_utils.get_node_text(child, source)
-        return None if name in SKIP_NAMES else name
+        return None if name in PY_SKIP_NAMES else name
 
-    if child.type in SPLAT_TYPES:
+    if child.type in PY_SPLAT_TYPES:
         for sub in child.children:
             if sub.type == "identifier":
                 name = ast_utils.get_node_text(sub, source)
-                return None if name in SKIP_NAMES else name
+                return None if name in PY_SKIP_NAMES else name
         return None
 
     name_child = child.child_by_field_name("name") or (child.children[0] if child.children else None)
     if name_child:
         name = ast_utils.get_node_text(name_child, source)
-        return None if name in SKIP_NAMES else name
+        return None if name in PY_SKIP_NAMES else name
     return "<unknown>"
 
 
-def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Finding]]:
-    """Check parameter annotations for a function. Returns (total, annotated, findings)."""
+def _check_params_python(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Finding]]:
+    """Check Python parameter annotations. Returns (total, annotated, findings)."""
     params_node = func.node.child_by_field_name("parameters")
     if params_node is None:
         return 0, 0, []
@@ -45,14 +52,14 @@ def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Fin
     findings: list[Finding] = []
 
     for child in params_node.children:
-        if child.type in TYPED_PARAM_TYPES:
-            name = _get_param_name(child, source)
+        if child.type in PY_TYPED_PARAM_TYPES:
+            name = _get_param_name_python(child, source)
             if name is None:
                 continue
             total += 1
             annotated += 1
-        elif child.type in UNTYPED_PARAM_TYPES:
-            name = _get_param_name(child, source)
+        elif child.type in PY_UNTYPED_PARAM_TYPES:
+            name = _get_param_name_python(child, source)
             if name is None:
                 continue
             total += 1
@@ -60,8 +67,8 @@ def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Fin
                 message=f"parameter '{name}' in {func.name}() missing type hint",
                 line=func.start_line, function=func.name, severity="info",
             ))
-        elif child.type in SPLAT_TYPES:
-            name = _get_param_name(child, source)
+        elif child.type in PY_SPLAT_TYPES:
+            name = _get_param_name_python(child, source)
             if name is None:
                 continue
             total += 1
@@ -72,6 +79,64 @@ def _check_params(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Fin
             ))
 
     return total, annotated, findings
+
+
+def _get_param_name_php(child, source: bytes) -> str | None:
+    """Extract PHP parameter name from simple_parameter/variadic_parameter."""
+    name_node = child.child_by_field_name("name")
+    if name_node:
+        for sub in name_node.children:
+            if sub.type == "name":
+                return ast_utils.get_node_text(sub, source)
+    return None
+
+
+def _check_params_php(func: FunctionInfo, source: bytes) -> tuple[int, int, list[Finding]]:
+    """Check PHP parameter type declarations. Returns (total, annotated, findings)."""
+    params_node = func.node.child_by_field_name("parameters")
+    if params_node is None:
+        return 0, 0, []
+
+    total = 0
+    annotated = 0
+    findings: list[Finding] = []
+
+    for child in params_node.children:
+        if child.type not in PHP_PARAM_TYPES:
+            continue
+        name = _get_param_name_php(child, source)
+        if name is None:
+            continue
+        total += 1
+        # PHP param has type if it has a "type" field child
+        if child.child_by_field_name("type"):
+            annotated += 1
+        else:
+            prefix = "..." if child.type == "variadic_parameter" else ""
+            findings.append(Finding(
+                message=f"parameter '${prefix}{name}' in {func.name}() missing type declaration",
+                line=func.start_line, function=func.name, severity="info",
+            ))
+
+    return total, annotated, findings
+
+
+def _has_strict_types(parsed: ParsedFile) -> bool:
+    """Check if a PHP file has declare(strict_types=1) at the top."""
+    for child in parsed.root.children:
+        if child.type == "declare_statement":
+            for sub in child.children:
+                if sub.type == "declare_directive":
+                    has_strict = False
+                    has_one = False
+                    for part in sub.children:
+                        if part.type == "strict_types":
+                            has_strict = True
+                        if part.type == "integer" and ast_utils.get_node_text(part, parsed.source) == "1":
+                            has_one = True
+                    if has_strict and has_one:
+                        return True
+    return False
 
 
 class TypeHintsSieve(BaseSieve):
@@ -89,6 +154,8 @@ class TypeHintsSieve(BaseSieve):
         annotated_params = 0
         annotated_returns = 0
 
+        check_params = _check_params_php if parsed.language == "php" else _check_params_python
+
         for func in functions:
             if func.node.child_by_field_name("return_type"):
                 annotated_returns += 1
@@ -98,7 +165,7 @@ class TypeHintsSieve(BaseSieve):
                     line=func.start_line, function=func.name, severity="info",
                 ))
 
-            params_total, params_ann, params_findings = _check_params(func, parsed.source)
+            params_total, params_ann, params_findings = check_params(func, parsed.source)
             total_params += params_total
             annotated_params += params_ann
             findings.extend(params_findings)
@@ -108,6 +175,17 @@ class TypeHintsSieve(BaseSieve):
         coverage = (annotated_params + annotated_returns) / denominator if denominator else 1.0
 
         score = SCORE_MIN + SCORE_RANGE * coverage
-        summary = f"{coverage:.0%} type coverage ({annotated_params}/{total_params} params, {annotated_returns}/{total_functions} returns)"
+
+        # PHP: penalize missing declare(strict_types=1) — PSR-12 §2.1
+        strict_note = ""
+        if parsed.language == "php" and not _has_strict_types(parsed):
+            score -= STRICT_TYPES_PENALTY
+            strict_note = ", missing strict_types"
+            findings.insert(0, Finding(
+                message="missing declare(strict_types=1) — PSR-12 §2.1",
+                line=1, severity="warning",
+            ))
+
+        summary = f"{coverage:.0%} type coverage ({annotated_params}/{total_params} params, {annotated_returns}/{total_functions} returns){strict_note}"
 
         return self.result(score, summary, findings)

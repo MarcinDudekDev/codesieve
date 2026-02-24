@@ -8,16 +8,18 @@ from pathlib import Path
 
 import tree_sitter
 import tree_sitter_python as tspython
+import tree_sitter_php as tsphp
 
 from codesieve.parser.languages import LanguageMap, LANGUAGE_REGISTRY, detect_language
 from codesieve.parser import ast_utils
 
 
 PY_LANGUAGE = tree_sitter.Language(tspython.language())
-_parser = tree_sitter.Parser(PY_LANGUAGE)
+PHP_LANGUAGE = tree_sitter.Language(tsphp.language_php())
 
 PARSERS: dict[str, tree_sitter.Parser] = {
-    "python": _parser,
+    "python": tree_sitter.Parser(PY_LANGUAGE),
+    "php": tree_sitter.Parser(PHP_LANGUAGE),
 }
 
 
@@ -128,6 +130,11 @@ class ParsedFile:
         params_node = func_node.child_by_field_name("parameters")
         if params_node is None:
             return 0
+        if self.language == "php":
+            return self._count_params_php(params_node)
+        return self._count_params_python(params_node)
+
+    def _count_params_python(self, params_node: tree_sitter.Node) -> int:
         count = 0
         for child in params_node.children:
             if child.type in ("identifier", "default_parameter", "typed_parameter",
@@ -143,5 +150,12 @@ class ParsedFile:
                         name = ast_utils.get_node_text(name_child, self.source)
                         if name in ("self", "cls"):
                             continue
+                count += 1
+        return count
+
+    def _count_params_php(self, params_node: tree_sitter.Node) -> int:
+        count = 0
+        for child in params_node.children:
+            if child.type in ("simple_parameter", "variadic_parameter"):
                 count += 1
         return count

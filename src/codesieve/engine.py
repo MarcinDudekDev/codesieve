@@ -17,6 +17,7 @@ from codesieve.sieves.error_handling import ErrorHandlingSieve
 from codesieve.sieves.type_hints import TypeHintsSieve
 from codesieve.sieves.magic_numbers import MagicNumbersSieve
 from codesieve.sieves.guard_clauses import GuardClausesSieve
+from codesieve.sieves.deprecated_api import DeprecatedAPISieve
 
 SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "KISS": KissSieve,
@@ -26,7 +27,11 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "TypeHints": TypeHintsSieve,
     "MagicNumbers": MagicNumbersSieve,
     "GuardClauses": GuardClausesSieve,
+    "DeprecatedAPI": DeprecatedAPISieve,
 }
+
+
+_SUPPORTED_GLOBS = ("*.py", "*.php")
 
 
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
@@ -36,12 +41,13 @@ def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
         return [path] if lang else []
 
     files = []
-    for p in sorted(path.rglob("*.py")):
-        if any(p.match(pat) for pat in exclude):
-            continue
-        if detect_language(str(p)):
-            files.append(p)
-    return files
+    for pattern in _SUPPORTED_GLOBS:
+        for p in sorted(path.rglob(pattern)):
+            if any(p.match(pat) for pat in exclude):
+                continue
+            if detect_language(str(p)):
+                files.append(p)
+    return sorted(files)
 
 
 def scan_file(filepath: str | Path, config: Config) -> FileReport:

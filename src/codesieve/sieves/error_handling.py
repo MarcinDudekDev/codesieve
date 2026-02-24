@@ -12,9 +12,17 @@ BARE_EXCEPT_PENALTY = 1.5
 EMPTY_BODY_PENALTY = 1.0
 BROAD_CATCH_PENALTY = 0.5
 
+# Broad exception types per language
+BROAD_EXCEPTIONS = {
+    "python": {"Exception"},
+    "php": {"Exception", "\\Exception", "Throwable", "\\Throwable"},
+}
+
+
+# ---- Python-specific helpers ----
 
 def _get_block(except_node):
-    """Extract the block child from an except clause."""
+    """Extract the block child from a Python except clause."""
     for child in except_node.children:
         if child.type == "block":
             return child
@@ -24,13 +32,13 @@ def _get_block(except_node):
 EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple")
 
 
-def _is_bare_except(except_node) -> bool:
-    """Check if except clause has no exception type specified (AST-based)."""
+def _is_bare_except_python(except_node) -> bool:
+    """Check if Python except clause has no exception type specified."""
     return not any(child.type in EXCEPT_TYPE_INDICATORS for child in except_node.children)
 
 
-def _is_empty_body(except_node) -> bool:
-    """Check if except body contains only pass or ellipsis."""
+def _is_empty_body_python(except_node) -> bool:
+    """Check if Python except body contains only pass or ellipsis."""
     block = _get_block(except_node)
     if block is None:
         return False
@@ -47,47 +55,98 @@ def _is_empty_body(except_node) -> bool:
     return False
 
 
-_RAISE_SKIP_TYPES = ("function_definition", "except_clause")
+# ---- PHP-specific helpers ----
+
+def _get_catch_body(catch_node):
+    """Extract the compound_statement body from a PHP catch clause."""
+    return catch_node.child_by_field_name("body")
 
 
-def _has_raise_in_scope(block) -> bool:
-    """Check if block contains a raise_statement, not crossing into nested except clauses or functions."""
+def _is_empty_body_php(catch_node) -> bool:
+    """Check if PHP catch body is empty (only braces, whitespace, comments)."""
+    body = _get_catch_body(catch_node)
+    if body is None:
+        return False
+    significant = [c for c in body.children if c.type not in ("comment", "{", "}", "php_tag")]
+    return len(significant) == 0
+
+
+def _get_catch_type_text(catch_node, source: bytes) -> str | None:
+    """Extract the exception type text from a PHP catch clause."""
+    type_node = catch_node.child_by_field_name("type")
+    if type_node:
+        return ast_utils.get_node_text(type_node, source)
+    return None
+
+
+# ---- Shared helpers ----
+
+_RAISE_SKIP_TYPES_PYTHON = ("function_definition", "except_clause")
+_RAISE_SKIP_TYPES_PHP = ("function_definition", "method_declaration", "anonymous_function",
+                         "arrow_function", "catch_clause")
+
+
+def _has_raise_in_scope(block, language: str) -> bool:
+    """Check if block contains a raise/throw, not crossing into nested handlers or functions."""
+    raise_type = "throw_expression" if language == "php" else "raise_statement"
+    skip_types = _RAISE_SKIP_TYPES_PHP if language == "php" else _RAISE_SKIP_TYPES_PYTHON
+
     stack = list(reversed(block.children))
     while stack:
         node = stack.pop()
-        if node.type == "raise_statement":
+        if node.type == raise_type:
             return True
-        if node.type in _RAISE_SKIP_TYPES:
+        # PHP: throw can also be in a throw_statement
+        if language == "php" and node.type == "throw_statement":
+            return True
+        if node.type in skip_types:
             continue
         stack.extend(reversed(node.children))
     return False
 
 
-def _is_broad_without_reraise(except_node, source: bytes) -> bool:
-    """Check if except catches Exception broadly without re-raising."""
-    catches_exception = any(
-        child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception"
-        for child in except_node.children
-    )
-    if not catches_exception:
+def _is_broad_catch(handler_node, source: bytes, language: str) -> bool:
+    """Check if handler catches broad exception without re-raising."""
+    broad_types = BROAD_EXCEPTIONS.get(language, set())
+
+    if language == "php":
+        type_text = _get_catch_type_text(handler_node, source)
+        if type_text is None or type_text not in broad_types:
+            return False
+        body = _get_catch_body(handler_node)
+    else:
+        # Python
+        catches_exception = any(
+            child.type == "identifier" and ast_utils.get_node_text(child, source) == "Exception"
+            for child in handler_node.children
+        )
+        if not catches_exception:
+            return False
+        body = _get_block(handler_node)
+
+    if body is None:
         return False
-
-    block = _get_block(except_node)
-    if block is None:
-        return False
-
-    return not _has_raise_in_scope(block)
+    return not _has_raise_in_scope(body, language)
 
 
-def _check_except_clause(clause, source: bytes) -> list[tuple[str, float, str]]:
-    """Check a single except clause for issues. Returns list of (message, penalty, severity)."""
+def _check_handler(handler_node, source: bytes, language: str) -> list[tuple[str, float, str]]:
+    """Check a single exception handler for issues. Returns list of (message, penalty, severity)."""
     issues = []
-    if _is_bare_except(clause):
-        issues.append(("bare except: clause (no exception type)", BARE_EXCEPT_PENALTY, "error"))
-    if _is_empty_body(clause):
-        issues.append(("empty except body (pass/...)", EMPTY_BODY_PENALTY, "warning"))
-    if _is_broad_without_reraise(clause, source):
-        issues.append(("broad 'except Exception' without re-raise", BROAD_CATCH_PENALTY, "warning"))
+
+    if language == "python":
+        if _is_bare_except_python(handler_node):
+            issues.append(("bare except: clause (no exception type)", BARE_EXCEPT_PENALTY, "error"))
+        if _is_empty_body_python(handler_node):
+            issues.append(("empty except body (pass/...)", EMPTY_BODY_PENALTY, "warning"))
+    else:
+        # PHP catch clauses always require a type — no "bare catch" possible
+        if _is_empty_body_php(handler_node):
+            issues.append(("empty catch body", EMPTY_BODY_PENALTY, "warning"))
+
+    if _is_broad_catch(handler_node, source, language):
+        broad_name = "Exception" if language == "python" else "\\Exception"
+        issues.append((f"broad 'catch {broad_name}' without re-throw", BROAD_CATCH_PENALTY, "warning"))
+
     return issues
 
 
@@ -104,17 +163,19 @@ class ErrorHandlingSieve(BaseSieve):
             msg = f"No try blocks in {count} functions" if count else "No functions or try blocks found"
             return self.perfect(msg)
 
+        handler_type = "catch_clause" if parsed.language == "php" else "except_clause"
+
         findings: list[Finding] = []
         score = SCORE_MAX
         counts = {"bare": 0, "empty": 0, "broad": 0}
-        count_keys = {"bare except": "bare", "empty except": "empty", "broad": "broad"}
+        count_keys = {"bare except": "bare", "empty": "empty", "broad": "broad"}
 
         for try_node in try_nodes:
             for child in try_node.children:
-                if child.type != "except_clause":
+                if child.type != handler_type:
                     continue
                 line = child.start_point[0] + 1
-                for message, penalty, severity in _check_except_clause(child, parsed.source):
+                for message, penalty, severity in _check_handler(child, parsed.source, parsed.language):
                     score -= penalty
                     findings.append(Finding(message=message, line=line, severity=severity))
                     for prefix, key in count_keys.items():

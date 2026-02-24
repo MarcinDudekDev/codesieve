@@ -24,6 +24,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "TypeHints": 0.08,
     "MagicNumbers": 0.05,
     "GuardClauses": 0.05,
+    "DeprecatedAPI": 0.05,
     "DRY": 0.15,
     "SRP": 0.15,
     "Complexity": 0.10,
