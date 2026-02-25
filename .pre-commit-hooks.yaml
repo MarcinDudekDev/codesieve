@@ -1,0 +1,8 @@
+- id: codesieve
+  name: CodeSieve
+  description: Grade code through principle-based sieves
+  entry: codesieve scan
+  language: python
+  types_or: [python, php, javascript, ts]
+  args: ["--fail-under", "7.0"]
+  require_serial: true

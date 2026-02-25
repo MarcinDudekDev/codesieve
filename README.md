@@ -124,6 +124,20 @@ Agent writes code --> CodeSieve grades it --> Agent reads feedback --> Agent imp
 
 The JSON output (`--format json`) gives structured feedback that any AI agent can parse and act on. The `--fail-under` flag works as a CI gate to prevent quality regressions.
 
+## Pre-commit
+
+Add CodeSieve as a [pre-commit](https://pre-commit.com/) hook:
+
+```yaml
+# .pre-commit-config.yaml
+repos:
+  - repo: https://github.com/MarcinDudekDev/codesieve
+    rev: v0.1.0
+    hooks:
+      - id: codesieve
+        args: ["--fail-under", "7.0"]
+```
+
 ## Language Support
 
 | Language | Status | Standards |
