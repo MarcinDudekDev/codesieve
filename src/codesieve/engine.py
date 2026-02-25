@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from codesieve.config import Config
-from codesieve.models import FileReport, ScanReport
+from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.scoring import weighted_average, score_to_grade
@@ -60,6 +60,9 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
         for name in config.sieves
         if name in SIEVE_REGISTRY
     ]
+
+    if config.deterministic:
+        sieves_to_run = [s for s in sieves_to_run if s.sieve_type == SieveType.DETERMINISTIC]
 
     results = [sieve.analyze(parsed) for sieve in sieves_to_run]
 
