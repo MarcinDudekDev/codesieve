@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from codesieve.langs import LanguagePack, register_lang_pack
 from codesieve.parser import ast_utils
 

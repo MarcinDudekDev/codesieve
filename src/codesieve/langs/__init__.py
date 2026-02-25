@@ -18,11 +18,11 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class LanguagePack:
-    naming: NamingRules | None = None
-    error_handling: ErrorHandlingRules | None = None
+    naming: NamingRules
+    error_handling: ErrorHandlingRules
+    magic_numbers: MagicNumberRules
+    guard_clauses: GuardClauseRules
     type_hints: TypeHintRules | None = None
-    magic_numbers: MagicNumberRules | None = None
-    guard_clauses: GuardClauseRules | None = None
     deprecated_api: DeprecatedAPIRules | None = None
 
 
