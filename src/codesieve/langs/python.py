@@ -117,10 +117,53 @@ class PythonTypeHintRules:
         return 0.0, "", []
 
 
+_EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple")
+
+
+class PythonErrorHandlingRules:
+    handler_node_type = "except_clause"
+    broad_exception_types = frozenset({"Exception"})
+    raise_types = ("raise_statement",)
+    raise_skip_types = ("function_definition", "except_clause")
+
+    def is_bare_handler(self, node) -> bool:
+        return not any(child.type in _EXCEPT_TYPE_INDICATORS for child in node.children)
+
+    def is_empty_body(self, node) -> bool:
+        block = self.get_handler_body(node)
+        if block is None:
+            return False
+        significant = [c for c in block.children if c.type not in ("comment", "newline")]
+        if len(significant) != 1:
+            return False
+        stmt = significant[0]
+        if stmt.type == "pass_statement":
+            return True
+        if stmt.type == "expression_statement":
+            return any(child.type == "ellipsis" for child in stmt.children)
+        return False
+
+    def get_handler_body(self, node):
+        for child in node.children:
+            if child.type == "block":
+                return child
+        return None
+
+    def get_caught_type_text(self, node, source: bytes) -> str | None:
+        for child in node.children:
+            if child.type == "identifier" and ast_utils.get_node_text(child, source) in self.broad_exception_types:
+                return ast_utils.get_node_text(child, source)
+        return None
+
+    def has_broad_catch_concept(self) -> bool:
+        return True
+
+
 _pack = LanguagePack(
     guard_clauses=PythonGuardClauseRules(),
     magic_numbers=PythonMagicNumberRules(),
     type_hints=PythonTypeHintRules(),
+    error_handling=PythonErrorHandlingRules(),
 )
 
 register_lang_pack("python", _pack)

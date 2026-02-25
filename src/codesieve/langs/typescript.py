@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codesieve.langs import LanguagePack, register_lang_pack
-from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules
+from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules, JSErrorHandlingRules
 from codesieve.parser import ast_utils
 
 _js_magic = JSMagicNumberRules()
@@ -85,6 +85,7 @@ _pack = LanguagePack(
     guard_clauses=JSGuardClauseRules(),
     magic_numbers=TSMagicNumberRules(),
     type_hints=TSTypeHintRules(),
+    error_handling=JSErrorHandlingRules(),
 )
 
 register_lang_pack("typescript", _pack)

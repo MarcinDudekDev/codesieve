@@ -126,6 +126,36 @@ class PHPTypeHintRules:
         return False
 
 
+class PHPErrorHandlingRules:
+    handler_node_type = "catch_clause"
+    broad_exception_types = frozenset({"Exception", "\\Exception", "Throwable", "\\Throwable"})
+    raise_types = ("throw_expression", "throw_statement")
+    raise_skip_types = ("function_definition", "method_declaration", "anonymous_function",
+                        "arrow_function", "catch_clause")
+
+    def is_bare_handler(self, node) -> bool:
+        return False  # PHP catch clauses always require a type
+
+    def is_empty_body(self, node) -> bool:
+        body = self.get_handler_body(node)
+        if body is None:
+            return False
+        significant = [c for c in body.children if c.type not in ("comment", "{", "}", "php_tag")]
+        return len(significant) == 0
+
+    def get_handler_body(self, node):
+        return node.child_by_field_name("body")
+
+    def get_caught_type_text(self, node, source: bytes) -> str | None:
+        type_node = node.child_by_field_name("type")
+        if type_node:
+            return ast_utils.get_node_text(type_node, source)
+        return None
+
+    def has_broad_catch_concept(self) -> bool:
+        return True
+
+
 class PHPDeprecatedAPIRules:
     supported = True
     skip_reason = ""
@@ -173,6 +203,7 @@ _pack = LanguagePack(
     guard_clauses=PHPGuardClauseRules(),
     magic_numbers=PHPMagicNumberRules(),
     type_hints=PHPTypeHintRules(),
+    error_handling=PHPErrorHandlingRules(),
     deprecated_api=PHPDeprecatedAPIRules(),
 )
 
