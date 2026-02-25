@@ -55,6 +55,77 @@ class PHPMagicNumberRules:
         )
 
 
+_PHP_PARAM_TYPES = ("simple_parameter", "variadic_parameter")
+_STRICT_TYPES_PENALTY = 1.5
+
+
+def _get_param_name_php(child, source: bytes) -> str | None:
+    name_node = child.child_by_field_name("name")
+    if name_node:
+        for sub in name_node.children:
+            if sub.type == "name":
+                return ast_utils.get_node_text(sub, source)
+    return None
+
+
+class PHPTypeHintRules:
+    supported = True
+    skip_reason = ""
+
+    def check_params(self, func, source: bytes) -> tuple[int, int, list]:
+        from codesieve.models import Finding
+        params_node = func.node.child_by_field_name("parameters")
+        if params_node is None:
+            return 0, 0, []
+
+        total = 0
+        annotated = 0
+        findings: list[Finding] = []
+
+        for child in params_node.children:
+            if child.type not in _PHP_PARAM_TYPES:
+                continue
+            name = _get_param_name_php(child, source)
+            if name is None:
+                continue
+            total += 1
+            if child.child_by_field_name("type"):
+                annotated += 1
+            else:
+                prefix = "..." if child.type == "variadic_parameter" else ""
+                findings.append(Finding(
+                    message=f"parameter '${prefix}{name}' in {func.name}() missing type declaration",
+                    line=func.start_line, function=func.name, severity="info",
+                ))
+
+        return total, annotated, findings
+
+    def check_extras(self, parsed) -> tuple[float, str, list]:
+        from codesieve.models import Finding
+        if self._has_strict_types(parsed):
+            return 0.0, "", []
+        return _STRICT_TYPES_PENALTY, ", missing strict_types", [Finding(
+            message="missing declare(strict_types=1) — PSR-12 §2.1",
+            line=1, severity="warning",
+        )]
+
+    def _has_strict_types(self, parsed) -> bool:
+        for child in parsed.root.children:
+            if child.type == "declare_statement":
+                for sub in child.children:
+                    if sub.type == "declare_directive":
+                        has_strict = False
+                        has_one = False
+                        for part in sub.children:
+                            if part.type == "strict_types":
+                                has_strict = True
+                            if part.type == "integer" and ast_utils.get_node_text(part, parsed.source) == "1":
+                                has_one = True
+                        if has_strict and has_one:
+                            return True
+        return False
+
+
 class PHPDeprecatedAPIRules:
     supported = True
     skip_reason = ""
@@ -101,6 +172,7 @@ class PHPDeprecatedAPIRules:
 _pack = LanguagePack(
     guard_clauses=PHPGuardClauseRules(),
     magic_numbers=PHPMagicNumberRules(),
+    type_hints=PHPTypeHintRules(),
     deprecated_api=PHPDeprecatedAPIRules(),
 )
 
