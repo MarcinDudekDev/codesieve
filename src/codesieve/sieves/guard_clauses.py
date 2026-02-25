@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import tree_sitter
+
 from codesieve.langs import get_lang_pack
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
@@ -12,7 +14,8 @@ SKIP_TYPES = ("comment", "newline")
 MIN_IF_LINES = 3
 
 
-def _get_significant_children(body, language: str, docstring_types: tuple[str, ...]) -> list:
+def _get_significant_children(body: tree_sitter.Node, language: str,
+                              docstring_types: tuple[str, ...]) -> list[tree_sitter.Node]:
     """Extract significant children from a function body, skipping docstrings/comments."""
     significant = []
     for child in body.children:

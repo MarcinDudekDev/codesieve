@@ -13,6 +13,28 @@ REMOVED_PENALTY = 1.0
 DEPRECATED_PENALTY = 0.5
 
 
+def _make_finding(func_name: str, entry: tuple[str, str, str], line: int) -> tuple[Finding, float]:
+    """Build a Finding and its penalty from a deprecated DB entry."""
+    replacement, severity, version = entry
+    if severity == "removed":
+        msg = f"{func_name}() removed in PHP {version} — use {replacement}"
+        return Finding(message=msg, line=line, severity="error"), REMOVED_PENALTY
+    msg = f"{func_name}() deprecated since PHP {version} — use {replacement}"
+    return Finding(message=msg, line=line, severity="warning"), DEPRECATED_PENALTY
+
+
+def _build_summary(findings: list[Finding]) -> str:
+    """Summarise deprecated API findings."""
+    removed = sum(1 for f in findings if f.severity == "error")
+    deprecated = sum(1 for f in findings if f.severity == "warning")
+    parts = []
+    if removed:
+        parts.append(f"{removed} removed")
+    if deprecated:
+        parts.append(f"{deprecated} deprecated")
+    return f"{' + '.join(parts)} function call(s) found"
+
+
 class DeprecatedAPISieve(BaseSieve):
     name = "DeprecatedAPI"
     description = "Detects calls to deprecated or removed functions"
@@ -34,34 +56,11 @@ class DeprecatedAPISieve(BaseSieve):
             func_name = rules.extract_call_name(node, parsed.source)
             if func_name is None or func_name not in rules.deprecated_db:
                 continue
-
-            replacement, severity, version = rules.deprecated_db[func_name]
-            penalty = REMOVED_PENALTY if severity == "removed" else DEPRECATED_PENALTY
+            finding, penalty = _make_finding(func_name, rules.deprecated_db[func_name], node.start_point[0] + 1)
             score -= penalty
-
-            if severity == "removed":
-                msg = f"{func_name}() removed in PHP {version} — use {replacement}"
-                sev = "error"
-            else:
-                msg = f"{func_name}() deprecated since PHP {version} — use {replacement}"
-                sev = "warning"
-
-            findings.append(Finding(
-                message=msg,
-                line=node.start_point[0] + 1,
-                severity=sev,
-            ))
+            findings.append(finding)
 
         if not findings:
             return self.perfect("No deprecated API calls found")
 
-        removed = sum(1 for f in findings if f.severity == "error")
-        deprecated = sum(1 for f in findings if f.severity == "warning")
-        parts = []
-        if removed:
-            parts.append(f"{removed} removed")
-        if deprecated:
-            parts.append(f"{deprecated} deprecated")
-        summary = f"{' + '.join(parts)} function call(s) found"
-
-        return self.result(score, summary, findings)
+        return self.result(score, _build_summary(findings), findings)

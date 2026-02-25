@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from codesieve.langs import get_lang_pack
 from codesieve.langs._patterns import ALLOWED_SHORT, SHORT_NAME_LIMIT
+from codesieve.langs.protocols import NamingRules
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.scoring import SCORE_MAX
@@ -12,7 +13,7 @@ from codesieve.sieves.base import BaseSieve
 VIOLATION_SCALE = 18.0
 
 
-def _check_definition_names(parsed: ParsedFile, rules) -> tuple[int, int, list[Finding]]:
+def _check_definition_names(parsed: ParsedFile, rules: NamingRules) -> tuple[int, int, list[Finding]]:
     """Check function and class definition names."""
     total = 0
     violations = 0
@@ -38,7 +39,7 @@ def _check_definition_names(parsed: ParsedFile, rules) -> tuple[int, int, list[F
     return total, violations, findings
 
 
-def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str], rules) -> tuple[int, int, list[Finding]]:
+def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str], rules: NamingRules) -> tuple[int, int, list[Finding]]:
     """Check parameter names for abbreviations."""
     params_node = func.node.child_by_field_name("parameters")
     if not params_node:

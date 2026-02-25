@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Callable
+
+import tree_sitter
+
 from codesieve.langs import get_lang_pack
+from codesieve.langs.protocols import MagicNumberRules
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
@@ -14,7 +19,8 @@ PENALTY_PER_MAGIC = 0.5
 NUMERIC_TYPES = ("integer", "float", "number")
 
 
-def _parse_numeric(node, source: bytes, is_negated_fn) -> float | None:
+def _parse_numeric(node: tree_sitter.Node, source: bytes,
+                   is_negated_fn: Callable[[tree_sitter.Node], bool]) -> float | None:
     """Parse a numeric node to its value, accounting for unary minus parent."""
     text = ast_utils.get_node_text(node, source)
     try:
@@ -60,9 +66,10 @@ class MagicNumbersSieve(BaseSieve):
 
         return self.result(score, summary, findings)
 
-    def _check_body(self, func_name: str, body, source: bytes, rules) -> list[Finding]:
+    def _check_body(self, func_name: str, body: tree_sitter.Node, source: bytes,
+                    rules: MagicNumberRules) -> list[Finding]:
         """Find magic numbers in a function body."""
-        results = []
+        results: list[Finding] = []
         for node in ast_utils.walk_within_scope(body):
             if node.type not in NUMERIC_TYPES:
                 continue

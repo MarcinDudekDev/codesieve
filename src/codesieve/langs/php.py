@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import re
 
-from codesieve.langs import LanguagePack, register_lang_pack
-from codesieve.parser import ast_utils
+import tree_sitter
 
+from codesieve.langs import LanguagePack, register_lang_pack
 from codesieve.langs._patterns import SNAKE_CASE, UPPER_SNAKE, PASCAL_CASE, CAMEL_CASE, ALLOWED_SHORT, SHORT_NAME_LIMIT
+from codesieve.models import Finding
+from codesieve.parser import ast_utils
+from codesieve.parser.treesitter import FunctionInfo, ParsedFile
 
 PHP_MAGIC_METHODS = re.compile(r"^__[a-zA-Z]+$")
 
@@ -15,12 +18,20 @@ PHP_MAGIC_METHODS = re.compile(r"^__[a-zA-Z]+$")
 class PHPGuardClauseRules:
     docstring_types: tuple[str, ...] = ()
 
-    def has_elif_or_else(self, if_node) -> bool:
+    def has_elif_or_else(self, if_node: tree_sitter.Node) -> bool:
         return any(child.type in ("else_if_clause", "else_clause") for child in if_node.children)
 
 
+def _php_upper_snake_var(node: tree_sitter.Node, source: bytes) -> bool:
+    """Check if a PHP variable_name node has an UPPER_SNAKE name child."""
+    for sub in node.children:
+        if sub.type == "name":
+            return bool(UPPER_SNAKE.match(ast_utils.get_node_text(sub, source)))
+    return False
+
+
 class PHPMagicNumberRules:
-    def is_default_param(self, node) -> bool:
+    def is_default_param(self, node: tree_sitter.Node) -> bool:
         parent = node.parent
         while parent:
             if parent.type in ("simple_parameter", "variadic_parameter"):
@@ -31,21 +42,20 @@ class PHPMagicNumberRules:
             parent = parent.parent
         return False
 
-    def is_constant_assignment(self, node, source: bytes) -> bool:
+    def is_constant_assignment(self, node: tree_sitter.Node, source: bytes) -> bool:
         parent = node.parent
         if parent and parent.type == "unary_op_expression":
             parent = parent.parent
-        if parent and parent.type == "const_element":
+        if not parent:
+            return False
+        if parent.type == "const_element":
             return True
-        if parent and parent.type == "assignment_expression":
-            left = parent.child_by_field_name("left")
-            if left and left.type == "variable_name":
-                for sub in left.children:
-                    if sub.type == "name":
-                        return bool(UPPER_SNAKE.match(ast_utils.get_node_text(sub, source)))
-        return False
+        if parent.type != "assignment_expression":
+            return False
+        left = parent.child_by_field_name("left")
+        return left is not None and left.type == "variable_name" and _php_upper_snake_var(left, source)
 
-    def is_negated(self, node) -> bool:
+    def is_negated(self, node: tree_sitter.Node) -> bool:
         parent = node.parent
         return (
             parent is not None
@@ -61,7 +71,7 @@ _PHP_PARAM_TYPES = ("simple_parameter", "variadic_parameter")
 _STRICT_TYPES_PENALTY = 1.5
 
 
-def _get_param_name_php(child, source: bytes) -> str | None:
+def _get_param_name_php(child: tree_sitter.Node, source: bytes) -> str | None:
     name_node = child.child_by_field_name("name")
     if name_node:
         for sub in name_node.children:
@@ -70,12 +80,34 @@ def _get_param_name_php(child, source: bytes) -> str | None:
     return None
 
 
+def _is_strict_types_directive(directive: tree_sitter.Node, source: bytes) -> bool:
+    """Check if a declare_directive is strict_types=1."""
+    has_strict = False
+    has_one = False
+    for part in directive.children:
+        if part.type == "strict_types":
+            has_strict = True
+        if part.type == "integer" and ast_utils.get_node_text(part, source) == "1":
+            has_one = True
+    return has_strict and has_one
+
+
+def _has_strict_types(parsed: ParsedFile) -> bool:
+    """Check if a PHP file has declare(strict_types=1) at the top."""
+    for child in parsed.root.children:
+        if child.type != "declare_statement":
+            continue
+        for sub in child.children:
+            if sub.type == "declare_directive" and _is_strict_types_directive(sub, parsed.source):
+                return True
+    return False
+
+
 class PHPTypeHintRules:
     supported = True
     skip_reason = ""
 
-    def check_params(self, func, source: bytes) -> tuple[int, int, list]:
-        from codesieve.models import Finding
+    def check_params(self, func: FunctionInfo, source: bytes) -> tuple[int, int, list[Finding]]:
         params_node = func.node.child_by_field_name("parameters")
         if params_node is None:
             return 0, 0, []
@@ -102,30 +134,13 @@ class PHPTypeHintRules:
 
         return total, annotated, findings
 
-    def check_extras(self, parsed) -> tuple[float, str, list]:
-        from codesieve.models import Finding
-        if self._has_strict_types(parsed):
+    def check_extras(self, parsed: ParsedFile) -> tuple[float, str, list[Finding]]:
+        if _has_strict_types(parsed):
             return 0.0, "", []
         return _STRICT_TYPES_PENALTY, ", missing strict_types", [Finding(
             message="missing declare(strict_types=1) — PSR-12 §2.1",
             line=1, severity="warning",
         )]
-
-    def _has_strict_types(self, parsed) -> bool:
-        for child in parsed.root.children:
-            if child.type == "declare_statement":
-                for sub in child.children:
-                    if sub.type == "declare_directive":
-                        has_strict = False
-                        has_one = False
-                        for part in sub.children:
-                            if part.type == "strict_types":
-                                has_strict = True
-                            if part.type == "integer" and ast_utils.get_node_text(part, parsed.source) == "1":
-                                has_one = True
-                        if has_strict and has_one:
-                            return True
-        return False
 
 
 class PHPErrorHandlingRules:
@@ -135,20 +150,20 @@ class PHPErrorHandlingRules:
     raise_skip_types = ("function_definition", "method_declaration", "anonymous_function",
                         "arrow_function", "catch_clause")
 
-    def is_bare_handler(self, node) -> bool:
+    def is_bare_handler(self, node: tree_sitter.Node) -> bool:
         return False  # PHP catch clauses always require a type
 
-    def is_empty_body(self, node) -> bool:
+    def is_empty_body(self, node: tree_sitter.Node) -> bool:
         body = self.get_handler_body(node)
         if body is None:
             return False
         significant = [c for c in body.children if c.type not in ("comment", "{", "}", "php_tag")]
         return len(significant) == 0
 
-    def get_handler_body(self, node):
+    def get_handler_body(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
         return node.child_by_field_name("body")
 
-    def get_caught_type_text(self, node, source: bytes) -> str | None:
+    def get_caught_type_text(self, node: tree_sitter.Node, source: bytes) -> str | None:
         type_node = node.child_by_field_name("type")
         if type_node:
             return ast_utils.get_node_text(type_node, source)
@@ -194,7 +209,7 @@ class PHPDeprecatedAPIRules:
         "utf8_decode": ("mb_convert_encoding($s, 'ISO-8859-1', 'UTF-8')", "deprecated", "8.2"),
     }
 
-    def extract_call_name(self, node, source: bytes) -> str | None:
+    def extract_call_name(self, node: tree_sitter.Node, source: bytes) -> str | None:
         func_name_node = node.child_by_field_name("function")
         if not func_name_node or func_name_node.type != "name":
             return None
@@ -204,12 +219,11 @@ class PHPDeprecatedAPIRules:
 _PHP_NAMING_PARAM_NODE_TYPES = ("simple_parameter", "variadic_parameter")
 
 
-def _extract_param_name_php_naming(child, source: bytes) -> str | None:
-    name_node = child.child_by_field_name("name")
-    if name_node:
-        for sub in name_node.children:
-            if sub.type == "name":
-                return ast_utils.get_node_text(sub, source)
+def _extract_php_var_name(left: tree_sitter.Node, source: bytes) -> str | None:
+    """Extract the name from a PHP variable_name node (skip $)."""
+    for sub in left.children:
+        if sub.type == "name":
+            return ast_utils.get_node_text(sub, source)
     return None
 
 
@@ -221,31 +235,27 @@ class PHPNamingRules:
         if PHP_MAGIC_METHODS.match(name):
             return True, ""
         if context == "class":
-            if PASCAL_CASE.match(name):
-                return True, ""
-            return False, f"class '{name}' should be PascalCase (PSR-1)"
+            return (True, "") if PASCAL_CASE.match(name) else (False, f"class '{name}' should be PascalCase (PSR-1)")
         if context == "constant":
-            if UPPER_SNAKE.match(name):
-                return True, ""
-            return False, f"constant '{name}' should be UPPER_SNAKE_CASE (PSR-1)"
+            return (True, "") if UPPER_SNAKE.match(name) else (False, f"constant '{name}' should be UPPER_SNAKE_CASE (PSR-1)")
         if context == "method":
-            if CAMEL_CASE.match(name):
-                return True, ""
-            return False, f"method '{name}' should be camelCase (PSR-1)"
+            return (True, "") if CAMEL_CASE.match(name) else (False, f"method '{name}' should be camelCase (PSR-1)")
         if CAMEL_CASE.match(name) or SNAKE_CASE.match(name) or UPPER_SNAKE.match(name):
             return True, ""
         return False, f"'{name}' should be camelCase or snake_case"
 
-    def func_context(self, node) -> str:
-        if node.type == "method_declaration":
-            return "method"
-        return "function"
+    def func_context(self, node: tree_sitter.Node) -> str:
+        return "method" if node.type == "method_declaration" else "function"
 
-    def extract_param_name(self, node, source: bytes) -> str | None:
-        return _extract_param_name_php_naming(node, source)
+    def extract_param_name(self, node: tree_sitter.Node, source: bytes) -> str | None:
+        name_node = node.child_by_field_name("name")
+        if name_node:
+            for sub in name_node.children:
+                if sub.type == "name":
+                    return ast_utils.get_node_text(sub, source)
+        return None
 
-    def check_variable_names(self, func, source: bytes, seen: set[str]) -> tuple[int, int, list]:
-        from codesieve.models import Finding
+    def check_variable_names(self, func: FunctionInfo, source: bytes, seen: set[str]) -> tuple[int, int, list[Finding]]:
         body = func.node.child_by_field_name("body")
         if not body:
             return 0, 0, []
@@ -260,24 +270,16 @@ class PHPNamingRules:
             left = node.child_by_field_name("left")
             if not left or left.type != "variable_name":
                 continue
-            name = None
-            for sub in left.children:
-                if sub.type == "name":
-                    name = ast_utils.get_node_text(sub, source)
-                    break
-            if not name or name in seen:
-                continue
-            if name == "this":
+            name = _extract_php_var_name(left, source)
+            if not name or name in seen or name == "this":
                 continue
             seen.add(name)
             total += 1
-            line = node.start_point[0] + 1
-
             if len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
                 violations += 1
                 findings.append(Finding(
                     message=f"abbreviated variable '${name}' in {func.name}()",
-                    line=line, function=func.name, severity="info",
+                    line=node.start_point[0] + 1, function=func.name, severity="info",
                 ))
 
         return total, violations, findings

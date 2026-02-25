@@ -2,21 +2,24 @@
 
 from __future__ import annotations
 
-from codesieve.langs import LanguagePack, register_lang_pack
-from codesieve.parser import ast_utils
+import tree_sitter
 
+from codesieve.langs import LanguagePack, register_lang_pack
 from codesieve.langs._patterns import SNAKE_CASE, UPPER_SNAKE, PASCAL_CASE, DUNDER, ALLOWED_SHORT, SHORT_NAME_LIMIT
+from codesieve.models import Finding
+from codesieve.parser import ast_utils
+from codesieve.parser.treesitter import FunctionInfo, ParsedFile
 
 
 class PythonGuardClauseRules:
     docstring_types = ("string", "concatenated_string")
 
-    def has_elif_or_else(self, if_node) -> bool:
+    def has_elif_or_else(self, if_node: tree_sitter.Node) -> bool:
         return any(child.type in ("elif_clause", "else_clause") for child in if_node.children)
 
 
 class PythonMagicNumberRules:
-    def is_default_param(self, node) -> bool:
+    def is_default_param(self, node: tree_sitter.Node) -> bool:
         parent = node.parent
         while parent:
             if parent.type in ("default_parameter", "typed_default_parameter"):
@@ -26,17 +29,18 @@ class PythonMagicNumberRules:
             parent = parent.parent
         return False
 
-    def is_constant_assignment(self, node, source: bytes) -> bool:
+    def is_constant_assignment(self, node: tree_sitter.Node, source: bytes) -> bool:
         parent = node.parent
         if parent and parent.type == "unary_operator":
             parent = parent.parent
-        if parent and parent.type == "assignment":
-            left = parent.child_by_field_name("left")
-            if left and left.type == "identifier":
-                return bool(UPPER_SNAKE.match(ast_utils.get_node_text(left, source)))
+        if not parent or parent.type != "assignment":
+            return False
+        left = parent.child_by_field_name("left")
+        if left and left.type == "identifier":
+            return bool(UPPER_SNAKE.match(ast_utils.get_node_text(left, source)))
         return False
 
-    def is_negated(self, node) -> bool:
+    def is_negated(self, node: tree_sitter.Node) -> bool:
         parent = node.parent
         return (
             parent is not None
@@ -45,35 +49,64 @@ class PythonMagicNumberRules:
         )
 
 
-_PY_SKIP_NAMES = ("self", "cls")
+_PY_SKIP_NAMES = frozenset({"self", "cls"})
 _PY_TYPED_PARAM_TYPES = ("typed_parameter", "typed_default_parameter")
 _PY_UNTYPED_PARAM_TYPES = ("identifier", "default_parameter")
 _PY_SPLAT_TYPES = ("list_splat_pattern", "dictionary_splat_pattern")
 
 
-def _get_param_name_python(child, source: bytes) -> str | None:
+def _py_identifier_name(node: tree_sitter.Node, source: bytes) -> str | None:
+    """Extract identifier text, returning None if self/cls."""
+    name = ast_utils.get_node_text(node, source)
+    return None if name in _PY_SKIP_NAMES else name
+
+
+def _get_param_name_python(child: tree_sitter.Node, source: bytes) -> str | None:
     if child.type == "identifier":
-        name = ast_utils.get_node_text(child, source)
-        return None if name in _PY_SKIP_NAMES else name
+        return _py_identifier_name(child, source)
     if child.type in _PY_SPLAT_TYPES:
         for sub in child.children:
             if sub.type == "identifier":
-                name = ast_utils.get_node_text(sub, source)
-                return None if name in _PY_SKIP_NAMES else name
+                return _py_identifier_name(sub, source)
         return None
     name_child = child.child_by_field_name("name") or (child.children[0] if child.children else None)
     if name_child:
-        name = ast_utils.get_node_text(name_child, source)
-        return None if name in _PY_SKIP_NAMES else name
+        return _py_identifier_name(name_child, source)
     return "<unknown>"
+
+
+def _classify_py_param(child: tree_sitter.Node, func: FunctionInfo, source: bytes,
+                       findings: list[Finding]) -> tuple[bool, bool]:
+    """Classify a single Python param. Returns (counted, annotated)."""
+    if child.type in _PY_TYPED_PARAM_TYPES:
+        return _get_param_name_python(child, source) is not None, True
+    if child.type in _PY_UNTYPED_PARAM_TYPES:
+        name = _get_param_name_python(child, source)
+        if name is None:
+            return False, False
+        findings.append(Finding(
+            message=f"parameter '{name}' in {func.name}() missing type hint",
+            line=func.start_line, function=func.name, severity="info",
+        ))
+        return True, False
+    if child.type in _PY_SPLAT_TYPES:
+        name = _get_param_name_python(child, source)
+        if name is None:
+            return False, False
+        prefix = "*" if child.type == "list_splat_pattern" else "**"
+        findings.append(Finding(
+            message=f"parameter '{prefix}{name}' in {func.name}() missing type hint",
+            line=func.start_line, function=func.name, severity="info",
+        ))
+        return True, False
+    return False, False
 
 
 class PythonTypeHintRules:
     supported = True
     skip_reason = ""
 
-    def check_params(self, func, source: bytes) -> tuple[int, int, list]:
-        from codesieve.models import Finding
+    def check_params(self, func: FunctionInfo, source: bytes) -> tuple[int, int, list[Finding]]:
         params_node = func.node.child_by_field_name("parameters")
         if params_node is None:
             return 0, 0, []
@@ -81,37 +114,15 @@ class PythonTypeHintRules:
         total = 0
         annotated = 0
         findings: list[Finding] = []
-
         for child in params_node.children:
-            if child.type in _PY_TYPED_PARAM_TYPES:
-                name = _get_param_name_python(child, source)
-                if name is None:
-                    continue
+            counted, typed = _classify_py_param(child, func, source, findings)
+            if counted:
                 total += 1
+            if typed:
                 annotated += 1
-            elif child.type in _PY_UNTYPED_PARAM_TYPES:
-                name = _get_param_name_python(child, source)
-                if name is None:
-                    continue
-                total += 1
-                findings.append(Finding(
-                    message=f"parameter '{name}' in {func.name}() missing type hint",
-                    line=func.start_line, function=func.name, severity="info",
-                ))
-            elif child.type in _PY_SPLAT_TYPES:
-                name = _get_param_name_python(child, source)
-                if name is None:
-                    continue
-                total += 1
-                prefix = "*" if child.type == "list_splat_pattern" else "**"
-                findings.append(Finding(
-                    message=f"parameter '{prefix}{name}' in {func.name}() missing type hint",
-                    line=func.start_line, function=func.name, severity="info",
-                ))
-
         return total, annotated, findings
 
-    def check_extras(self, parsed) -> tuple[float, str, list]:
+    def check_extras(self, parsed: ParsedFile) -> tuple[float, str, list[Finding]]:
         return 0.0, "", []
 
 
@@ -124,10 +135,10 @@ class PythonErrorHandlingRules:
     raise_types = ("raise_statement",)
     raise_skip_types = ("function_definition", "except_clause")
 
-    def is_bare_handler(self, node) -> bool:
+    def is_bare_handler(self, node: tree_sitter.Node) -> bool:
         return not any(child.type in _EXCEPT_TYPE_INDICATORS for child in node.children)
 
-    def is_empty_body(self, node) -> bool:
+    def is_empty_body(self, node: tree_sitter.Node) -> bool:
         block = self.get_handler_body(node)
         if block is None:
             return False
@@ -141,13 +152,13 @@ class PythonErrorHandlingRules:
             return any(child.type == "ellipsis" for child in stmt.children)
         return False
 
-    def get_handler_body(self, node):
+    def get_handler_body(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
         for child in node.children:
             if child.type == "block":
                 return child
         return None
 
-    def get_caught_type_text(self, node, source: bytes) -> str | None:
+    def get_caught_type_text(self, node: tree_sitter.Node, source: bytes) -> str | None:
         for child in node.children:
             if child.type == "identifier" and ast_utils.get_node_text(child, source) in self.broad_exception_types:
                 return ast_utils.get_node_text(child, source)
@@ -161,7 +172,7 @@ _PY_NAMING_PARAM_NODE_TYPES = ("identifier", "default_parameter", "typed_paramet
                                "typed_default_parameter", "list_splat_pattern", "dictionary_splat_pattern")
 
 
-def _extract_param_name_python(child, source: bytes) -> str | None:
+def _extract_param_name_python(child: tree_sitter.Node, source: bytes) -> str | None:
     if child.type == "identifier":
         return ast_utils.get_node_text(child, source)
     if child.type in ("default_parameter", "typed_parameter", "typed_default_parameter"):
@@ -171,6 +182,19 @@ def _extract_param_name_python(child, source: bytes) -> str | None:
         for sub in child.children:
             if sub.type == "identifier":
                 return ast_utils.get_node_text(sub, source)
+    return None
+
+
+def _check_py_var(name: str, line: int, func_name: str, validate_fn) -> Finding | None:
+    """Check a single Python variable name, returning a Finding if invalid."""
+    valid, reason = validate_fn(name, "variable")
+    if not valid:
+        return Finding(message=reason, line=line, function=func_name, severity="warning")
+    if len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
+        return Finding(
+            message=f"abbreviated variable '{name}' in {func_name}()",
+            line=line, function=func_name, severity="info",
+        )
     return None
 
 
@@ -196,14 +220,13 @@ class PythonNamingRules:
             return True, ""
         return False, f"'{name}' should be snake_case"
 
-    def func_context(self, node) -> str:
+    def func_context(self, node: tree_sitter.Node) -> str:
         return "function"
 
-    def extract_param_name(self, node, source: bytes) -> str | None:
+    def extract_param_name(self, node: tree_sitter.Node, source: bytes) -> str | None:
         return _extract_param_name_python(node, source)
 
-    def check_variable_names(self, func, source: bytes, seen: set[str]) -> tuple[int, int, list]:
-        from codesieve.models import Finding
+    def check_variable_names(self, func: FunctionInfo, source: bytes, seen: set[str]) -> tuple[int, int, list[Finding]]:
         body = func.node.child_by_field_name("body")
         if not body:
             return 0, 0, []
@@ -223,18 +246,10 @@ class PythonNamingRules:
                 continue
             seen.add(name)
             total += 1
-            line = node.start_point[0] + 1
-
-            valid, reason = self.validate_name(name, "variable")
-            if not valid:
+            finding = _check_py_var(name, node.start_point[0] + 1, func.name, self.validate_name)
+            if finding:
                 violations += 1
-                findings.append(Finding(message=reason, line=line, function=func.name, severity="warning"))
-            elif len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
-                violations += 1
-                findings.append(Finding(
-                    message=f"abbreviated variable '{name}' in {func.name}()",
-                    line=line, function=func.name, severity="info",
-                ))
+                findings.append(finding)
 
         return total, violations, findings
 
