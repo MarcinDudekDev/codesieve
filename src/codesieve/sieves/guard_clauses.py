@@ -2,52 +2,42 @@
 
 from __future__ import annotations
 
+from codesieve.langs import get_lang_pack
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
 from codesieve.scoring import SCORE_MAX, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve
 
-PY_DOCSTRING_TYPES = ("string", "concatenated_string")
 SKIP_TYPES = ("comment", "newline")
 MIN_IF_LINES = 3
 
 
-def _get_significant_children(body, language: str) -> list:
+def _get_significant_children(body, language: str, docstring_types: tuple[str, ...]) -> list:
     """Extract significant children from a function body, skipping docstrings/comments."""
     significant = []
     for child in body.children:
         if child.type in SKIP_TYPES:
             continue
-        # Skip opening/closing braces for PHP compound_statement
         if child.type in ("{", "}"):
             continue
-        # Skip Python docstrings
         if language == "python" and child.type == "expression_statement" and child.child_count > 0:
-            if child.children[0].type in PY_DOCSTRING_TYPES and not significant:
+            if child.children[0].type in docstring_types and not significant:
                 continue
         significant.append(child)
     return significant
 
 
-def _has_elif_or_else(if_node, language: str) -> bool:
-    """Check if an if_statement has elif/elseif or else branches."""
-    if language == "php":
-        return any(child.type in ("else_if_clause", "else_clause") for child in if_node.children)
-    if language in ("javascript", "typescript"):
-        return any(child.type == "else_clause" for child in if_node.children)
-    return any(child.type in ("elif_clause", "else_clause") for child in if_node.children)
+def _needs_guard_clause(func: FunctionInfo, parsed: ParsedFile) -> bool:
+    """Check if a function wraps its entire body in a single non-trivial if block."""
+    pack = get_lang_pack(parsed.language)
+    rules = pack.guard_clauses if pack else None
 
-
-def _needs_guard_clause(func: FunctionInfo, language: str) -> bool:
-    """Check if a function wraps its entire body in a single non-trivial if block.
-
-    Does NOT flag if/elif/else chains — those are idiomatic dispatch patterns.
-    """
     body = func.node.child_by_field_name("body")
     if not body:
         return False
 
-    significant = _get_significant_children(body, language)
+    docstring_types = rules.docstring_types if rules else ()
+    significant = _get_significant_children(body, parsed.language, docstring_types)
     if len(significant) != 1:
         return False
 
@@ -55,8 +45,7 @@ def _needs_guard_clause(func: FunctionInfo, language: str) -> bool:
     if stmt.type != "if_statement":
         return False
 
-    # Don't flag if/elif/else — that's a dispatch pattern, not a wrapping guard
-    if _has_elif_or_else(stmt, language):
+    if rules and rules.has_elif_or_else(stmt):
         return False
 
     if_lines = stmt.end_point[0] - stmt.start_point[0] + 1
@@ -77,7 +66,7 @@ class GuardClausesSieve(BaseSieve):
         flagged = 0
 
         for func in functions:
-            if _needs_guard_clause(func, parsed.language):
+            if _needs_guard_clause(func, parsed):
                 flagged += 1
                 findings.append(Finding(
                     message=f"{func.name}() wraps entire body in single if — consider guard clause",
