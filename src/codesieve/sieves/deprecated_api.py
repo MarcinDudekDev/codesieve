@@ -53,7 +53,7 @@ class DeprecatedAPISieve(BaseSieve):
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         if parsed.language != "php":
-            return self.perfect("Not applicable (non-PHP file)")
+            return self.skip("Not applicable (non-PHP file)")
 
         findings: list[Finding] = []
         score = SCORE_MAX

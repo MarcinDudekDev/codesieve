@@ -191,7 +191,7 @@ class TypeHintsSieve(BaseSieve):
     def analyze(self, parsed: ParsedFile) -> SieveResult:
         # JS has no native type system — skip
         if parsed.language == "javascript":
-            return self.perfect("TypeHints not applicable for JavaScript")
+            return self.skip("TypeHints not applicable for JavaScript")
 
         functions = parsed.get_functions()
         if not functions:

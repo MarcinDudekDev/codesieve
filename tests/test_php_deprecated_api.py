@@ -43,11 +43,12 @@ def test_removed_vs_deprecated_severity():
 
 
 def test_python_file_returns_perfect():
-    """DeprecatedAPI sieve should return perfect for non-PHP files."""
+    """DeprecatedAPI sieve should skip for non-PHP files."""
     py_fixtures = Path(__file__).parent / "fixtures" / "python"
     parsed = ParsedFile(str(py_fixtures / "good.py"))
     result = DeprecatedAPISieve().analyze(parsed)
-    assert result.score == 10.0
+    assert result.skipped is True
+    assert "non-PHP" in result.skip_reason
 
 
 def test_specific_mysql_detection():
