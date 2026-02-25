@@ -79,10 +79,36 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
     )
 
 
-def scan(path: str | Path, config: Config) -> ScanReport:
+def _collect_diff_files(path: Path, ref: str) -> set[Path]:
+    """Collect files changed since ref using git diff."""
+    import subprocess
+    try:
+        root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=str(path if path.is_dir() else path.parent),
+            text=True,
+        ).strip()
+        diff_output = subprocess.check_output(
+            ["git", "diff", "--name-only", "--diff-filter=ACM", ref],
+            cwd=root,
+            text=True,
+        ).strip()
+        if not diff_output:
+            return set()
+        return {Path(root) / line for line in diff_output.splitlines()}
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return set()
+
+
+def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanReport:
     """Scan a file or directory."""
     path = Path(path)
     files = _collect_files(path, config.exclude)
+
+    if diff_ref:
+        changed = _collect_diff_files(path, diff_ref)
+        if changed:
+            files = [f for f in files if f.resolve() in {c.resolve() for c in changed}]
 
     if not files:
         return ScanReport()
