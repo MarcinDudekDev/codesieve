@@ -2,7 +2,7 @@
 
 **Deterministic code quality grading for AI coding workflows.**
 
-CodeSieve runs 8 principle-based sieves against your Python and PHP code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
+CodeSieve runs 8 principle-based sieves against your Python, PHP, JavaScript, and TypeScript code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
 
 Built for the AI-assisted coding loop: let your agent write code, then grade it automatically before committing. Works as a CLI tool, CI gate, or quality feedback signal for any AI coding agent.
 
@@ -34,11 +34,12 @@ Requires Python 3.10+.
 ## Usage
 
 ```bash
-# Scan a single file (Python or PHP)
+# Scan a single file
 codesieve scan app.py
 codesieve scan index.php
+codesieve scan app.ts
 
-# Scan a directory (picks up .py and .php files)
+# Scan a directory (picks up .py, .php, .js, .jsx, .ts, .tsx files)
 codesieve scan src/
 
 # JSON output for CI pipelines
@@ -129,19 +130,20 @@ The JSON output (`--format json`) gives structured feedback that any AI agent ca
 |----------|--------|-----------|
 | Python | Supported | PEP 8 |
 | PHP | Supported | PSR-1, PSR-12 |
-| JavaScript/TypeScript | Planned | |
+| JavaScript | Supported | camelCase, PascalCase |
+| TypeScript | Supported | camelCase, PascalCase, type annotations |
 | Go | Planned | |
 
 CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making new language support straightforward -- each language needs its own sieve implementations that understand the language's idioms and conventions.
 
 ## Roadmap
 
-- [x] Python support (7 sieves)
+- [x] Python support (8 sieves)
 - [x] PHP support (8 sieves, PSR-1/PSR-12 enforcement, deprecated API detection)
-- [ ] JavaScript/TypeScript support
+- [x] JavaScript/TypeScript support (camelCase/PascalCase, TS type annotations)
 - [ ] `--watch` mode for continuous feedback
-- [ ] GitHub Actions integration
-- [ ] Pre-commit hook
+- [x] GitHub Actions integration
+- [x] Pre-commit hook
 - [ ] More sieves: DRY, SRP, Complexity, Comments
 - [ ] Custom sieve plugins
 
