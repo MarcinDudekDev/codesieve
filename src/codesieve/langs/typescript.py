@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codesieve.langs import LanguagePack, register_lang_pack
-from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules, JSErrorHandlingRules
+from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules, JSErrorHandlingRules, JSNamingRules
 from codesieve.parser import ast_utils
 
 _js_magic = JSMagicNumberRules()
@@ -81,11 +81,35 @@ class TSTypeHintRules:
         return 0.0, "", []
 
 
+_TS_NAMING_PARAM_NODE_TYPES = ("required_parameter", "optional_parameter")
+
+_js_naming = JSNamingRules()
+
+
+class TSNamingRules:
+    """TS uses same validation as JS but different param node types."""
+    skip_param_names: frozenset[str] = frozenset()
+    param_node_types = _TS_NAMING_PARAM_NODE_TYPES
+
+    def validate_name(self, name: str, context: str) -> tuple[bool, str]:
+        return _js_naming.validate_name(name, context)
+
+    def func_context(self, node) -> str:
+        return _js_naming.func_context(node)
+
+    def extract_param_name(self, node, source: bytes) -> str | None:
+        return _get_param_name_ts(node, source)
+
+    def check_variable_names(self, func, source: bytes, seen: set[str]) -> tuple[int, int, list]:
+        return _js_naming.check_variable_names(func, source, seen)
+
+
 _pack = LanguagePack(
     guard_clauses=JSGuardClauseRules(),
     magic_numbers=TSMagicNumberRules(),
     type_hints=TSTypeHintRules(),
     error_handling=JSErrorHandlingRules(),
+    naming=TSNamingRules(),
 )
 
 register_lang_pack("typescript", _pack)

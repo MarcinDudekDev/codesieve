@@ -7,7 +7,9 @@ import re
 from codesieve.langs import LanguagePack, register_lang_pack
 from codesieve.parser import ast_utils
 
-UPPER_SNAKE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+from codesieve.langs._patterns import SNAKE_CASE, UPPER_SNAKE, PASCAL_CASE, CAMEL_CASE, ALLOWED_SHORT, SHORT_NAME_LIMIT
+
+PHP_MAGIC_METHODS = re.compile(r"^__[a-zA-Z]+$")
 
 
 class PHPGuardClauseRules:
@@ -199,11 +201,94 @@ class PHPDeprecatedAPIRules:
         return ast_utils.get_node_text(func_name_node, source)
 
 
+_PHP_NAMING_PARAM_NODE_TYPES = ("simple_parameter", "variadic_parameter")
+
+
+def _extract_param_name_php_naming(child, source: bytes) -> str | None:
+    name_node = child.child_by_field_name("name")
+    if name_node:
+        for sub in name_node.children:
+            if sub.type == "name":
+                return ast_utils.get_node_text(sub, source)
+    return None
+
+
+class PHPNamingRules:
+    skip_param_names: frozenset[str] = frozenset()
+    param_node_types = _PHP_NAMING_PARAM_NODE_TYPES
+
+    def validate_name(self, name: str, context: str) -> tuple[bool, str]:
+        if PHP_MAGIC_METHODS.match(name):
+            return True, ""
+        if context == "class":
+            if PASCAL_CASE.match(name):
+                return True, ""
+            return False, f"class '{name}' should be PascalCase (PSR-1)"
+        if context == "constant":
+            if UPPER_SNAKE.match(name):
+                return True, ""
+            return False, f"constant '{name}' should be UPPER_SNAKE_CASE (PSR-1)"
+        if context == "method":
+            if CAMEL_CASE.match(name):
+                return True, ""
+            return False, f"method '{name}' should be camelCase (PSR-1)"
+        if CAMEL_CASE.match(name) or SNAKE_CASE.match(name) or UPPER_SNAKE.match(name):
+            return True, ""
+        return False, f"'{name}' should be camelCase or snake_case"
+
+    def func_context(self, node) -> str:
+        if node.type == "method_declaration":
+            return "method"
+        return "function"
+
+    def extract_param_name(self, node, source: bytes) -> str | None:
+        return _extract_param_name_php_naming(node, source)
+
+    def check_variable_names(self, func, source: bytes, seen: set[str]) -> tuple[int, int, list]:
+        from codesieve.models import Finding
+        body = func.node.child_by_field_name("body")
+        if not body:
+            return 0, 0, []
+
+        total = 0
+        violations = 0
+        findings: list[Finding] = []
+
+        for node in ast_utils.walk_within_scope(body):
+            if node.type != "assignment_expression":
+                continue
+            left = node.child_by_field_name("left")
+            if not left or left.type != "variable_name":
+                continue
+            name = None
+            for sub in left.children:
+                if sub.type == "name":
+                    name = ast_utils.get_node_text(sub, source)
+                    break
+            if not name or name in seen:
+                continue
+            if name == "this":
+                continue
+            seen.add(name)
+            total += 1
+            line = node.start_point[0] + 1
+
+            if len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
+                violations += 1
+                findings.append(Finding(
+                    message=f"abbreviated variable '${name}' in {func.name}()",
+                    line=line, function=func.name, severity="info",
+                ))
+
+        return total, violations, findings
+
+
 _pack = LanguagePack(
     guard_clauses=PHPGuardClauseRules(),
     magic_numbers=PHPMagicNumberRules(),
     type_hints=PHPTypeHintRules(),
     error_handling=PHPErrorHandlingRules(),
+    naming=PHPNamingRules(),
     deprecated_api=PHPDeprecatedAPIRules(),
 )
 
