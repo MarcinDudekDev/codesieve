@@ -1,0 +1,44 @@
+# CodeSieve Configuration
+sieves:
+  - KISS
+  - Nesting
+  - Naming
+  - ErrorHandling
+  - TypeHints
+  - MagicNumbers
+  - GuardClauses
+  - DeprecatedAPI
+  # - DRY        # Phase 2
+  # - SRP        # Phase 3 (requires LLM)
+  # - Complexity  # Phase 3 (requires LLM)
+  # - Comments   # Phase 2
+
+weights:
+  KISS: 0.20
+  Nesting: 0.15
+  Naming: 0.15
+  ErrorHandling: 0.10
+  TypeHints: 0.08
+  MagicNumbers: 0.05
+  GuardClauses: 0.05
+  DeprecatedAPI: 0.05
+  DRY: 0.15
+  SRP: 0.15
+  Complexity: 0.10
+  Comments: 0.10
+
+# Minimum aggregate score (0 = disabled)
+fail_under: 0
+
+# Set true to skip LLM-dependent sieves
+deterministic: false
+
+# Output format: terminal, json
+format: terminal
+
+# File patterns to exclude
+exclude:
+  - "**/node_modules/**"
+  - "**/.venv/**"
+  - "**/venv/**"
+  - "**/__pycache__/**"
