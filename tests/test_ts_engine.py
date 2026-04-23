@@ -14,7 +14,7 @@ def test_scan_ts_file_good():
     report = scan_file(FIXTURES / "good.ts", config)
     assert report.aggregate_score >= 7.0
     assert report.grade in (Grade.A, Grade.B)
-    assert len(report.sieve_results) == 9
+    assert len(report.sieve_results) == 10
     assert report.language == "typescript"
 
 

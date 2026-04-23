@@ -75,7 +75,7 @@ def test_sieves_list():
     assert result.exit_code == 0
     assert "KISS" in result.output
     assert "Nesting" in result.output
-    assert "9 sieves" in result.output
+    assert "10 sieves" in result.output
 
 
 def test_init_creates_file():

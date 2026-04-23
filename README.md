@@ -20,6 +20,8 @@ Traditional linters focus on style. CodeSieve focuses on **design principles** -
 | **MagicNumbers** | Unexplained numeric literals in function bodies |
 | **GuardClauses** | Functions wrapping entire body in a single if-block |
 | **DeprecatedAPI** | Calls to deprecated/removed PHP functions with replacement suggestions |
+| **Comments** | Docstring/JSDoc coverage on named functions |
+| **DRY** | Duplicate function bodies — identical logic extracted instead of copied |
 
 Each sieve produces a score from 1.0 (worst) to 10.0 (best), specific findings with line numbers, and an actionable summary. Scores are weighted and combined into an aggregate grade.
 
@@ -158,7 +160,8 @@ CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making
 - [ ] `--watch` mode for continuous feedback
 - [x] GitHub Actions integration
 - [x] Pre-commit hook
-- [ ] More sieves: DRY, SRP, Complexity, Comments
+- [x] More sieves: Comments (docstring coverage), DRY (duplicate function bodies)
+- [ ] More sieves: SRP, Complexity
 - [ ] Custom sieve plugins
 
 ## Contributing

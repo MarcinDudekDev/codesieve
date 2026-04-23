@@ -19,6 +19,7 @@ from codesieve.sieves.magic_numbers import MagicNumbersSieve
 from codesieve.sieves.guard_clauses import GuardClausesSieve
 from codesieve.sieves.deprecated_api import DeprecatedAPISieve
 from codesieve.sieves.comments import CommentsSieve
+from codesieve.sieves.dry import DrySieve
 
 SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "KISS": KissSieve,
@@ -30,6 +31,7 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "GuardClauses": GuardClausesSieve,
     "DeprecatedAPI": DeprecatedAPISieve,
     "Comments": CommentsSieve,
+    "DRY": DrySieve,
 }
 
 

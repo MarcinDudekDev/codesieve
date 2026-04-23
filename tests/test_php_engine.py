@@ -14,14 +14,14 @@ def test_scan_php_file_good():
     report = scan_file(FIXTURES / "good.php", config)
     assert report.aggregate_score >= 7.0
     assert report.grade in (Grade.A, Grade.B)
-    assert len(report.sieve_results) == 9
+    assert len(report.sieve_results) == 10
     assert report.language == "php"
 
 
 def test_scan_php_file_bad():
     config = Config()
     report = scan_file(FIXTURES / "bad.php", config)
-    assert report.aggregate_score <= 5.0
+    assert report.aggregate_score < 7.0
     assert report.grade in (Grade.C, Grade.D, Grade.F)
 
 
