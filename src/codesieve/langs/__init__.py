@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from codesieve.langs.protocols import (
+        CommentRules,
         DeprecatedAPIRules,
         ErrorHandlingRules,
         GuardClauseRules,
@@ -24,6 +25,7 @@ class LanguagePack:
     guard_clauses: GuardClauseRules
     type_hints: TypeHintRules | None = None
     deprecated_api: DeprecatedAPIRules | None = None
+    comments: CommentRules | None = None
 
 
 _REGISTRY: dict[str, LanguagePack] = {}

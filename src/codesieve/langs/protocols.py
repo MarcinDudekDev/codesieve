@@ -63,6 +63,15 @@ class GuardClauseRules(Protocol):
 
 
 @runtime_checkable
+class CommentRules(Protocol):
+    """Language-specific docstring/comment coverage rules."""
+    supported: bool
+    skip_reason: str
+
+    def has_docstring(self, func_node, source: bytes) -> bool: ...
+
+
+@runtime_checkable
 class DeprecatedAPIRules(Protocol):
     """Language-specific deprecated API detection rules."""
     supported: bool

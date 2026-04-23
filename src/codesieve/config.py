@@ -9,7 +9,7 @@ import yaml
 
 
 DEFAULTS = {
-    "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI"],
+    "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments"],
     "weights": {
         "KISS": 0.20,
         "Nesting": 0.15,
@@ -76,10 +76,10 @@ sieves:
   - MagicNumbers
   - GuardClauses
   - DeprecatedAPI
+  - Comments
   # - DRY        # Phase 2
   # - SRP        # Phase 3 (requires LLM)
   # - Complexity  # Phase 3 (requires LLM)
-  # - Comments   # Phase 2
 
 weights:
   KISS: 0.20

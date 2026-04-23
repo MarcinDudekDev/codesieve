@@ -223,12 +223,24 @@ class JSDeprecatedAPIRules:
         return results
 
 
+class JSCommentRules:
+    supported = True
+    skip_reason = ""
+
+    def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
+        prev = func_node.prev_named_sibling
+        if prev is None or prev.type != "comment":
+            return False
+        return ast_utils.get_node_text(prev, source).strip().startswith("/**")
+
+
 _pack = LanguagePack(
     guard_clauses=JSGuardClauseRules(),
     magic_numbers=JSMagicNumberRules(),
     error_handling=JSErrorHandlingRules(),
     naming=JSNamingRules(),
     deprecated_api=JSDeprecatedAPIRules(),
+    comments=JSCommentRules(),
 )
 
 register_lang_pack("javascript", _pack)

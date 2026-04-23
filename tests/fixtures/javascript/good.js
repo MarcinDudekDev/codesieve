@@ -31,19 +31,23 @@ function calculateAverage(numbers) {
  * Simple user class with clean naming.
  */
 class UserProfile {
+    /** Initialise with name and email. */
     constructor(name, email) {
         this.name = name;
         this.email = email;
     }
 
+    /** Return the display name or a fallback. */
     getDisplayName() {
         return this.name || 'Anonymous';
     }
 
+    /** Check that name and email are present. */
     isValid() {
         return this.name && this.email;
     }
 
+    /** Factory helper to create a UserProfile instance. */
     static create(name, email) {
         return new UserProfile(name, email);
     }

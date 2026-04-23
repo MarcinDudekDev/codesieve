@@ -7,6 +7,7 @@ import re
 import tree_sitter
 
 from codesieve.langs import LanguagePack, register_lang_pack
+from codesieve.langs.javascript import JSCommentRules
 from codesieve.langs._patterns import SNAKE_CASE, UPPER_SNAKE, PASCAL_CASE, CAMEL_CASE, ALLOWED_SHORT, SHORT_NAME_LIMIT
 from codesieve.models import Finding
 from codesieve.parser import ast_utils
@@ -295,6 +296,7 @@ _pack = LanguagePack(
     error_handling=PHPErrorHandlingRules(),
     naming=PHPNamingRules(),
     deprecated_api=PHPDeprecatedAPIRules(),
+    comments=JSCommentRules(),
 )
 
 register_lang_pack("php", _pack)

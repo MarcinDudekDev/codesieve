@@ -258,12 +258,33 @@ class PythonNamingRules:
         return total, violations, findings
 
 
+_PY_DOCSTRING_TYPES = ("string", "concatenated_string")
+
+
+class PythonCommentRules:
+    supported = True
+    skip_reason = ""
+
+    def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
+        body = func_node.child_by_field_name("body")
+        if body is None:
+            return False
+        for child in body.children:
+            if child.type in ("comment", "newline"):
+                continue
+            if child.type == "expression_statement" and child.child_count > 0:
+                return child.children[0].type in _PY_DOCSTRING_TYPES
+            return False
+        return False
+
+
 _pack = LanguagePack(
     guard_clauses=PythonGuardClauseRules(),
     magic_numbers=PythonMagicNumberRules(),
     type_hints=PythonTypeHintRules(),
     error_handling=PythonErrorHandlingRules(),
     naming=PythonNamingRules(),
+    comments=PythonCommentRules(),
 )
 
 register_lang_pack("python", _pack)

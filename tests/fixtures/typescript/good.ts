@@ -19,6 +19,7 @@ interface Config {
 const MAX_RETRIES: number = 3;
 const DEFAULT_TIMEOUT: number = 5000;
 
+/** Format a user's full name from first and last components. */
 function formatFullName(firstName: string, lastName: string): string {
     if (!firstName || !lastName) {
         return '';
@@ -26,6 +27,7 @@ function formatFullName(firstName: string, lastName: string): string {
     return `${firstName} ${lastName}`;
 }
 
+/** Calculate the arithmetic mean of an array of numbers. */
 function calculateAverage(numbers: number[]): number {
     if (numbers.length === 0) {
         return 0;
@@ -38,24 +40,29 @@ class UserProfile {
     private name: string;
     private email: string;
 
+    /** Initialise with name and email. */
     constructor(name: string, email: string) {
         this.name = name;
         this.email = email;
     }
 
+    /** Return the display name or a fallback. */
     getDisplayName(): string {
         return this.name || 'Anonymous';
     }
 
+    /** Check that name and email are both present. */
     isValid(): boolean {
         return Boolean(this.name && this.email);
     }
 
+    /** Factory helper to create a UserProfile instance. */
     static create(name: string, email: string): UserProfile {
         return new UserProfile(name, email);
     }
 }
 
+/** Fetch user data from the API with error propagation. */
 async function fetchUserData(userId: string): Promise<UserData> {
     try {
         const response = await fetch(`/api/users/${userId}`);
@@ -71,6 +78,7 @@ async function fetchUserData(userId: string): Promise<UserData> {
     }
 }
 
+/** Parse raw config values, applying defaults where missing. */
 function parseConfig(rawConfig: Record<string, unknown>): Config {
     const timeout = (rawConfig.timeout as number) || DEFAULT_TIMEOUT;
     const retries = (rawConfig.retries as number) || MAX_RETRIES;
@@ -82,6 +90,7 @@ function parseConfig(rawConfig: Record<string, unknown>): Config {
     };
 }
 
+/** Filter active items and return id/label pairs. */
 function processItems(items: UserData[]): { id: number; label: string }[] {
     return items
         .filter((item: UserData) => item.active)
