@@ -17,6 +17,9 @@ class JSGuardClauseRules:
     def has_elif_or_else(self, if_node: tree_sitter.Node) -> bool:
         return any(child.type == "else_clause" for child in if_node.children)
 
+    def is_docstring_node(self, node: tree_sitter.Node) -> bool:
+        return False
+
 
 def _js_const_upper_snake(declarator: tree_sitter.Node, source: bytes) -> bool:
     """Check if a variable_declarator in a const declaration has an UPPER_SNAKE name."""

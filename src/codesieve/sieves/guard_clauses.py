@@ -14,8 +14,7 @@ SKIP_TYPES = ("comment", "newline")
 MIN_IF_LINES = 3
 
 
-def _get_significant_children(body: tree_sitter.Node, language: str,
-                              docstring_types: tuple[str, ...]) -> list[tree_sitter.Node]:
+def _get_significant_children(body: tree_sitter.Node, rules) -> list[tree_sitter.Node]:
     """Extract significant children from a function body, skipping docstrings/comments."""
     significant = []
     for child in body.children:
@@ -23,9 +22,8 @@ def _get_significant_children(body: tree_sitter.Node, language: str,
             continue
         if child.type in ("{", "}"):
             continue
-        if language == "python" and child.type == "expression_statement" and child.child_count > 0:
-            if child.children[0].type in docstring_types and not significant:
-                continue
+        if rules and rules.is_docstring_node(child) and not significant:
+            continue
         significant.append(child)
     return significant
 
@@ -39,8 +37,7 @@ def _needs_guard_clause(func: FunctionInfo, parsed: ParsedFile) -> bool:
     if not body:
         return False
 
-    docstring_types = rules.docstring_types if rules else ()
-    significant = _get_significant_children(body, parsed.language, docstring_types)
+    significant = _get_significant_children(body, rules)
     if len(significant) != 1:
         return False
 

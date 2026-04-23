@@ -17,6 +17,10 @@ class PythonGuardClauseRules:
     def has_elif_or_else(self, if_node: tree_sitter.Node) -> bool:
         return any(child.type in ("elif_clause", "else_clause") for child in if_node.children)
 
+    def is_docstring_node(self, node: tree_sitter.Node) -> bool:
+        return (node.type == "expression_statement" and node.child_count > 0
+                and node.children[0].type in self.docstring_types)
+
 
 class PythonMagicNumberRules:
     def is_default_param(self, node: tree_sitter.Node) -> bool:

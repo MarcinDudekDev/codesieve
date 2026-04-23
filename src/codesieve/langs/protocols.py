@@ -59,6 +59,7 @@ class GuardClauseRules(Protocol):
     docstring_types: tuple[str, ...]
 
     def has_elif_or_else(self, if_node) -> bool: ...
+    def is_docstring_node(self, node) -> bool: ...
 
 
 @runtime_checkable

@@ -21,6 +21,9 @@ class PHPGuardClauseRules:
     def has_elif_or_else(self, if_node: tree_sitter.Node) -> bool:
         return any(child.type in ("else_if_clause", "else_clause") for child in if_node.children)
 
+    def is_docstring_node(self, node: tree_sitter.Node) -> bool:
+        return False
+
 
 def _php_upper_snake_var(node: tree_sitter.Node, source: bytes) -> bool:
     """Check if a PHP variable_name node has an UPPER_SNAKE name child."""
