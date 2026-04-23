@@ -48,7 +48,7 @@ def test_python_file_returns_perfect():
     parsed = ParsedFile(str(py_fixtures / "good.py"))
     result = DeprecatedAPISieve().analyze(parsed)
     assert result.skipped is True
-    assert "non-PHP" in result.skip_reason
+    assert "python" in result.skip_reason.lower()
 
 
 def test_specific_mysql_detection():

@@ -5,7 +5,7 @@ from __future__ import annotations
 import tree_sitter
 
 from codesieve.langs import LanguagePack, register_lang_pack
-from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules, JSErrorHandlingRules, JSNamingRules
+from codesieve.langs.javascript import JSGuardClauseRules, JSMagicNumberRules, JSErrorHandlingRules, JSNamingRules, JSDeprecatedAPIRules
 from codesieve.models import Finding
 from codesieve.parser import ast_utils
 from codesieve.parser.treesitter import FunctionInfo, ParsedFile
@@ -119,6 +119,7 @@ _pack = LanguagePack(
     type_hints=TSTypeHintRules(),
     error_handling=JSErrorHandlingRules(),
     naming=TSNamingRules(),
+    deprecated_api=JSDeprecatedAPIRules(),
 )
 
 register_lang_pack("typescript", _pack)

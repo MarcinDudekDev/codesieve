@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from codesieve.langs import get_lang_pack
+from codesieve.langs.protocols import ExtendedDeprecatedAPIRules
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.parser import ast_utils
@@ -17,9 +18,9 @@ def _make_finding(func_name: str, entry: tuple[str, str, str], line: int) -> tup
     """Build a Finding and its penalty from a deprecated DB entry."""
     replacement, severity, version = entry
     if severity == "removed":
-        msg = f"{func_name}() removed in PHP {version} — use {replacement}"
+        msg = f"{func_name}() removed in {version} — use {replacement}"
         return Finding(message=msg, line=line, severity="error"), REMOVED_PENALTY
-    msg = f"{func_name}() deprecated since PHP {version} — use {replacement}"
+    msg = f"{func_name}() deprecated since {version} — use {replacement}"
     return Finding(message=msg, line=line, severity="warning"), DEPRECATED_PENALTY
 
 
@@ -32,7 +33,7 @@ def _build_summary(findings: list[Finding]) -> str:
         parts.append(f"{removed} removed")
     if deprecated:
         parts.append(f"{deprecated} deprecated")
-    return f"{' + '.join(parts)} function call(s) found"
+    return f"{' + '.join(parts)} pattern(s) found"
 
 
 class DeprecatedAPISieve(BaseSieve):
@@ -45,7 +46,7 @@ class DeprecatedAPISieve(BaseSieve):
         rules = pack.deprecated_api if pack else None
 
         if rules is None or not rules.supported:
-            return self.skip("Not applicable (non-PHP file)")
+            return self.skip(f"No deprecated-API rules for {parsed.language}")
 
         findings: list[Finding] = []
         score = SCORE_MAX
@@ -59,6 +60,11 @@ class DeprecatedAPISieve(BaseSieve):
             finding, penalty = _make_finding(func_name, rules.deprecated_db[func_name], node.start_point[0] + 1)
             score -= penalty
             findings.append(finding)
+
+        if isinstance(rules, ExtendedDeprecatedAPIRules):
+            for finding, penalty in rules.check_extra_patterns(parsed):
+                score -= penalty
+                findings.append(finding)
 
         if not findings:
             return self.perfect("No deprecated API calls found")

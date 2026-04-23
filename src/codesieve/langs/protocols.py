@@ -70,3 +70,10 @@ class DeprecatedAPIRules(Protocol):
     deprecated_db: dict[str, tuple[str, str, str]]
 
     def extract_call_name(self, node, source: bytes) -> str | None: ...
+
+
+@runtime_checkable
+class ExtendedDeprecatedAPIRules(DeprecatedAPIRules, Protocol):
+    """DeprecatedAPIRules with extra non-call-based pattern detection."""
+
+    def check_extra_patterns(self, parsed: ParsedFile) -> list[tuple[Finding, float]]: ...

@@ -96,4 +96,14 @@ function processOrder(order) {
     }
 }
 
-module.exports = { proc_data, data_processor, riskyOperation, chk, processOrder };
+// Deprecated: var declarations
+var globalCounter = 0;
+var tempBuffer = [];
+
+// Deprecated: escape/unescape globals
+function encodeStuff(input) {
+    var encoded = escape(input);
+    return unescape(encoded);
+}
+
+module.exports = { proc_data, data_processor, riskyOperation, chk, processOrder, encodeStuff };

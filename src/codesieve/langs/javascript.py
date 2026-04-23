@@ -8,7 +8,7 @@ from codesieve.langs import LanguagePack, register_lang_pack
 from codesieve.langs._patterns import SNAKE_CASE, UPPER_SNAKE, PASCAL_CASE, CAMEL_CASE, ALLOWED_SHORT, SHORT_NAME_LIMIT
 from codesieve.models import Finding
 from codesieve.parser import ast_utils
-from codesieve.parser.treesitter import FunctionInfo
+from codesieve.parser.treesitter import FunctionInfo, ParsedFile
 
 
 class JSGuardClauseRules:
@@ -176,11 +176,56 @@ class JSNamingRules:
         return total, violations, findings
 
 
+_VAR_PENALTY = 0.3
+_WITH_PENALTY = 0.5
+
+
+class JSDeprecatedAPIRules:
+    supported = True
+    skip_reason = ""
+    call_node_type = "call_expression"
+    deprecated_db: dict[str, tuple[str, str, str]] = {
+        "escape": ("encodeURIComponent()", "deprecated", "ES3+"),
+        "unescape": ("decodeURIComponent()", "deprecated", "ES3+"),
+        "eval": ("refactor to avoid eval()", "deprecated", "ES5+"),
+    }
+
+    def extract_call_name(self, node: tree_sitter.Node, source: bytes) -> str | None:
+        func_node = node.child_by_field_name("function")
+        if func_node and func_node.type == "identifier":
+            return ast_utils.get_node_text(func_node, source)
+        return None
+
+    def check_extra_patterns(self, parsed: ParsedFile) -> list[tuple[Finding, float]]:
+        results: list[tuple[Finding, float]] = []
+        for node in ast_utils.walk_tree(parsed.root):
+            if node.type == "variable_declaration":
+                line = node.start_point[0] + 1
+                results.append((
+                    Finding(
+                        message="'var' is deprecated — use 'let' or 'const'",
+                        line=line, severity="warning",
+                    ),
+                    _VAR_PENALTY,
+                ))
+            elif node.type == "with_statement":
+                line = node.start_point[0] + 1
+                results.append((
+                    Finding(
+                        message="'with' statement is deprecated and forbidden in strict mode",
+                        line=line, severity="error",
+                    ),
+                    _WITH_PENALTY,
+                ))
+        return results
+
+
 _pack = LanguagePack(
     guard_clauses=JSGuardClauseRules(),
     magic_numbers=JSMagicNumberRules(),
     error_handling=JSErrorHandlingRules(),
     naming=JSNamingRules(),
+    deprecated_api=JSDeprecatedAPIRules(),
 )
 
 register_lang_pack("javascript", _pack)
