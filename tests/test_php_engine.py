@@ -42,4 +42,4 @@ def test_scan_mixed_directory():
     assert "php" in languages
     assert "javascript" in languages
     assert "typescript" in languages
-    assert len(report.file_reports) == 8  # 2 python + 2 php + 2 js + 2 ts
+    assert len(report.file_reports) == 10  # 2 per language × 5 languages

@@ -104,11 +104,30 @@ TYPESCRIPT = LanguageMap(
     file_extension=".ts",
 )
 
+GO = LanguageMap(
+    function_types=("function_declaration", "method_declaration", "func_literal"),
+    class_types=(),
+    parameter_types=("parameter_declaration", "variadic_parameter_declaration"),
+    branch_types=(
+        "if_statement", "for_statement", "expression_switch_statement",
+        "type_switch_statement", "select_statement", "expression_case",
+    ),
+    nesting_types=(
+        "if_statement", "for_statement", "expression_switch_statement",
+        "type_switch_statement", "select_statement",
+    ),
+    comment_types=("comment",),
+    string_types=("interpreted_string_literal", "raw_string_literal"),
+    name_field="name",
+    file_extension=".go",
+)
+
 LANGUAGE_REGISTRY: dict[str, LanguageMap] = {
     "python": PYTHON,
     "php": PHP,
     "javascript": JAVASCRIPT,
     "typescript": TYPESCRIPT,
+    "go": GO,
 }
 
 
@@ -118,6 +137,7 @@ def detect_language(filepath: str) -> str | None:
         ".py": "python", ".php": "php",
         ".js": "javascript", ".jsx": "javascript",
         ".ts": "typescript", ".tsx": "typescript",
+        ".go": "go",
     }
     from pathlib import Path
     ext = Path(filepath).suffix

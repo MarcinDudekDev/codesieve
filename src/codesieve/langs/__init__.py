@@ -42,4 +42,4 @@ def get_lang_pack(language: str) -> LanguagePack | None:
 
 
 # Auto-import language modules to trigger registration
-from codesieve.langs import python, php, javascript, typescript  # noqa: E402, F401
+from codesieve.langs import python, php, javascript, typescript, go  # noqa: E402, F401

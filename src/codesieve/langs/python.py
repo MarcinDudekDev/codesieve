@@ -134,6 +134,8 @@ _EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple")
 
 
 class PythonErrorHandlingRules:
+    supported = True
+    skip_reason = ""
     handler_node_type = "except_clause"
     broad_exception_types = frozenset({"Exception"})
     raise_types = ("raise_statement",)
@@ -205,6 +207,7 @@ def _check_py_var(name: str, line: int, func_name: str, validate_fn) -> Finding 
 class PythonNamingRules:
     skip_param_names = frozenset({"self", "cls"})
     param_node_types = _PY_NAMING_PARAM_NODE_TYPES
+    allowed_short_names = ALLOWED_SHORT
 
     def validate_name(self, name: str, context: str) -> tuple[bool, str]:
         if DUNDER.match(name):

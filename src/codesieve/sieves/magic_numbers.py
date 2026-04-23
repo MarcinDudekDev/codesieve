@@ -16,7 +16,7 @@ from codesieve.sieves.base import BaseSieve
 
 ALLOWED_NUMBERS = {0, 1, -1, 2, 0.0, 1.0, 100, 1000}
 PENALTY_PER_MAGIC = 0.5
-NUMERIC_TYPES = ("integer", "float", "number")
+NUMERIC_TYPES = ("integer", "float", "number", "int_literal", "float_literal")
 
 
 def _parse_numeric(node: tree_sitter.Node, source: bytes,
@@ -24,12 +24,13 @@ def _parse_numeric(node: tree_sitter.Node, source: bytes,
     """Parse a numeric node to its value, accounting for unary minus parent."""
     text = ast_utils.get_node_text(node, source)
     try:
-        if node.type == "integer":
-            value = int(text, 0)
-        elif node.type == "number":
-            value = float(text) if "." in text or "e" in text.lower() else int(text, 0)
+        clean = text.replace("_", "")
+        if node.type in ("integer", "int_literal"):
+            value = int(clean, 0)
+        elif node.type in ("number", "float_literal"):
+            value = float(clean)
         else:
-            value = float(text)
+            value = float(clean)
     except (ValueError, OverflowError):
         return None
     if is_negated_fn(node):

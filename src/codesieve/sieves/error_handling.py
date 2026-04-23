@@ -99,17 +99,19 @@ class ErrorHandlingSieve(BaseSieve):
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        pack = get_lang_pack(parsed.language)
+        rules = pack.error_handling if pack else None
+        if rules is None:
+            return self.skip("No error handling rules for this language")
+        if not rules.supported:
+            return self.skip(rules.skip_reason)
+
         try_nodes = ast_utils.find_nodes(parsed.root, ("try_statement",))
 
         if not try_nodes:
             count = len(parsed.get_functions())
             msg = f"No try blocks in {count} functions" if count else "No functions or try blocks found"
             return self.perfect(msg)
-
-        pack = get_lang_pack(parsed.language)
-        rules = pack.error_handling if pack else None
-        if rules is None:
-            return self.skip("No error handling rules for this language")
 
         penalty, findings, counts = _process_handlers(try_nodes, parsed.source, rules)
         summary = self._build_summary(counts, len(try_nodes))

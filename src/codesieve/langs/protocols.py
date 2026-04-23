@@ -13,6 +13,7 @@ class NamingRules(Protocol):
     """Language-specific naming convention rules."""
     skip_param_names: frozenset[str]
     param_node_types: tuple[str, ...]
+    allowed_short_names: frozenset[str]
 
     def validate_name(self, name: str, context: str) -> tuple[bool, str]: ...
     def func_context(self, node) -> str: ...
@@ -23,6 +24,8 @@ class NamingRules(Protocol):
 @runtime_checkable
 class ErrorHandlingRules(Protocol):
     """Language-specific error handling rules."""
+    supported: bool
+    skip_reason: str
     handler_node_type: str
     broad_exception_types: frozenset[str]
     raise_types: tuple[str, ...]

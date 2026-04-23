@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from codesieve.langs import get_lang_pack
-from codesieve.langs._patterns import ALLOWED_SHORT, SHORT_NAME_LIMIT
+from codesieve.langs._patterns import SHORT_NAME_LIMIT
 from codesieve.langs.protocols import NamingRules
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
@@ -57,7 +57,7 @@ def _check_param_names(func: FunctionInfo, source: bytes, seen: set[str], rules:
             continue
         seen.add(name)
         total += 1
-        if len(name) <= SHORT_NAME_LIMIT and name not in ALLOWED_SHORT:
+        if len(name) <= SHORT_NAME_LIMIT and name not in rules.allowed_short_names:
             violations += 1
             findings.append(Finding(
                 message=f"abbreviated parameter '{name}' in {func.name}()",

@@ -65,6 +65,8 @@ class JSMagicNumberRules:
 
 
 class JSErrorHandlingRules:
+    supported = True
+    skip_reason = ""
     handler_node_type = "catch_clause"
     broad_exception_types: frozenset[str] = frozenset()
     raise_types = ("throw_statement",)
@@ -134,6 +136,7 @@ _JS_VAR_NODE_TYPES = ("assignment_expression", "variable_declarator")
 class JSNamingRules:
     skip_param_names: frozenset[str] = frozenset()
     param_node_types = _JS_PARAM_NODE_TYPES
+    allowed_short_names = ALLOWED_SHORT
 
     def validate_name(self, name: str, context: str) -> tuple[bool, str]:
         if context == "class":

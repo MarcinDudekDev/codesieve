@@ -148,6 +148,8 @@ class PHPTypeHintRules:
 
 
 class PHPErrorHandlingRules:
+    supported = True
+    skip_reason = ""
     handler_node_type = "catch_clause"
     broad_exception_types = frozenset({"Exception", "\\Exception", "Throwable", "\\Throwable"})
     raise_types = ("throw_expression", "throw_statement")
@@ -234,6 +236,7 @@ def _extract_php_var_name(left: tree_sitter.Node, source: bytes) -> str | None:
 class PHPNamingRules:
     skip_param_names: frozenset[str] = frozenset()
     param_node_types = _PHP_NAMING_PARAM_NODE_TYPES
+    allowed_short_names = ALLOWED_SHORT
 
     def validate_name(self, name: str, context: str) -> tuple[bool, str]:
         if PHP_MAGIC_METHODS.match(name):

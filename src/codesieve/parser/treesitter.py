@@ -11,6 +11,7 @@ import tree_sitter_python as tspython
 import tree_sitter_php as tsphp
 import tree_sitter_javascript as tsjs
 import tree_sitter_typescript as tsts
+import tree_sitter_go as tsgo
 
 from codesieve.parser.languages import LanguageMap, LANGUAGE_REGISTRY, detect_language
 from codesieve.parser import ast_utils
@@ -21,12 +22,14 @@ PHP_LANGUAGE = tree_sitter.Language(tsphp.language_php())
 JS_LANGUAGE = tree_sitter.Language(tsjs.language())
 TS_LANGUAGE = tree_sitter.Language(tsts.language_typescript())
 TSX_LANGUAGE = tree_sitter.Language(tsts.language_tsx())
+GO_LANGUAGE = tree_sitter.Language(tsgo.language())
 
 PARSERS: dict[str, tree_sitter.Parser] = {
     "python": tree_sitter.Parser(PY_LANGUAGE),
     "php": tree_sitter.Parser(PHP_LANGUAGE),
     "javascript": tree_sitter.Parser(JS_LANGUAGE),
     "typescript": tree_sitter.Parser(TS_LANGUAGE),
+    "go": tree_sitter.Parser(GO_LANGUAGE),
 }
 
 TSX_PARSER = tree_sitter.Parser(TSX_LANGUAGE)
@@ -150,6 +153,8 @@ class ParsedFile:
             return self._count_params_js(params_node)
         if self.language == "typescript":
             return self._count_params_ts(params_node)
+        if self.language == "go":
+            return self._count_params_go(params_node)
         return self._count_params_python(params_node)
 
     def _count_params_python(self, params_node: tree_sitter.Node) -> int:
@@ -192,5 +197,16 @@ class ParsedFile:
         count = 0
         for child in params_node.children:
             if child.type in ("required_parameter", "optional_parameter"):
+                count += 1
+        return count
+
+    def _count_params_go(self, params_node: tree_sitter.Node) -> int:
+        """Count Go parameters, handling multi-name declarations like (x, y int)."""
+        count = 0
+        for child in params_node.children:
+            if child.type == "parameter_declaration":
+                names = [c for c in child.children if c.type == "identifier"]
+                count += max(len(names), 1)
+            elif child.type == "variadic_parameter_declaration":
                 count += 1
         return count

@@ -99,6 +99,7 @@ class TSNamingRules:
     """TS uses same validation as JS but different param node types."""
     skip_param_names: frozenset[str] = frozenset()
     param_node_types = _TS_NAMING_PARAM_NODE_TYPES
+    allowed_short_names = _js_naming.allowed_short_names
 
     def validate_name(self, name: str, context: str) -> tuple[bool, str]:
         return _js_naming.validate_name(name, context)
