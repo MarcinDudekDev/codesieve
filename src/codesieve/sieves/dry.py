@@ -11,6 +11,7 @@ from codesieve.models import Finding, SieveResult
 from codesieve.parser import ast_utils
 from codesieve.parser.treesitter import FunctionInfo, ParsedFile
 from codesieve.scoring import SCORE_MAX
+from codesieve.sieves import dry_rules
 from codesieve.sieves.base import BaseSieve
 
 MIN_BODY_LINES = 3
@@ -23,6 +24,10 @@ BLANK_IDENTIFIERS = True  # match expressions that differ only in variable names
 EXPR_PENALTY = 0.4  # score cost per extra occurrence beyond the threshold
 EXPR_PENALTY_CAP = 2.0  # max cost charged for any single repeated-expression group
 SNIPPET_MAX = 60  # max chars of the offending expression shown in a finding
+
+# Part (b): stdlib/framework-helper reimplementation hints (info-level, never hard-fail).
+STDLIB_PENALTY = 0.5  # light cost per reimplementation hint
+STDLIB_PENALTY_CAP = 2.0  # total cost ceiling for all stdlib hints in a file
 
 
 def _normalize(text: str) -> str:
@@ -71,19 +76,22 @@ class DrySieve(BaseSieve):
 
         body_findings, body_dups, dup_func_nodes = self._duplicate_bodies(named, parsed.source)
         expr_findings, expr_penalty = self._repeated_expressions(parsed, dup_func_nodes)
+        stdlib_findings, stdlib_penalty = self._stdlib_reimplementations(parsed)
 
-        findings = body_findings + expr_findings
+        findings = body_findings + expr_findings + stdlib_findings
         if not findings:
             if not named:
                 return self.perfect("No functions found")
             return self.perfect("No duplicate bodies or repeated expressions found")
 
-        score = SCORE_MAX - PENALTY_PER_DUPLICATE * body_dups - expr_penalty
+        score = SCORE_MAX - PENALTY_PER_DUPLICATE * body_dups - expr_penalty - stdlib_penalty
         parts = []
         if body_dups:
             parts.append(f"{body_dups} duplicate function body(ies)")
         if expr_findings:
             parts.append(f"{len(expr_findings)} repeated expression(s)")
+        if stdlib_findings:
+            parts.append(f"{len(stdlib_findings)} stdlib-reimplementation hint(s)")
         return self.result(score, " and ".join(parts) + " found", findings)
 
     # ---- Existing behaviour: duplicate function bodies ---------------------------------
@@ -149,6 +157,31 @@ class DrySieve(BaseSieve):
                 severity="warning",
             ))
             penalty += min(EXPR_PENALTY_CAP, EXPR_PENALTY * (count - (MIN_OCCURRENCES - 1)))
+        return findings, penalty
+
+    # ---- Part (b): stdlib/framework-helper reimplementation hints ----------------------
+    def _stdlib_reimplementations(self, parsed: ParsedFile) -> tuple[list[Finding], float]:
+        rules = dry_rules.rules_for(parsed.language)
+        if not rules:
+            return [], 0.0
+
+        seen: set[tuple[str, int]] = set()  # (rule id, dedup scope) — one hint per scope
+        findings: list[Finding] = []
+        for node in ast_utils.walk_tree(parsed.root):
+            for rule in rules:
+                suggestion = rule.predicate(node, parsed)
+                if suggestion is None:
+                    continue
+                key = (suggestion.rule, suggestion.dedup_scope)
+                if key in seen:
+                    continue
+                seen.add(key)
+                findings.append(Finding(
+                    message=suggestion.message,
+                    line=node.start_point[0] + 1,
+                    severity="info",  # advisory only — never hard-fail
+                ))
+        penalty = min(STDLIB_PENALTY_CAP, STDLIB_PENALTY * len(findings))
         return findings, penalty
 
     def _collect_candidates(

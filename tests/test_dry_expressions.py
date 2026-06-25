@@ -143,5 +143,6 @@ function report($a, $b, $c) {
 }
 """
     result = _analyze(code, suffix=".php")
-    assert len(result.findings) == 1
-    assert "repeated 3×" in result.findings[0].message
+    repeated = [f for f in result.findings if "repeated" in f.message]
+    assert len(repeated) == 1
+    assert "repeated 3×" in repeated[0].message
