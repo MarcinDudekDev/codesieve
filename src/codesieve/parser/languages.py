@@ -17,6 +17,11 @@ class LanguageMap:
     string_types: tuple[str, ...]
     name_field: str  # field name for identifiers
     file_extension: str
+    # DRY expression-dedup support (optional, default empty)
+    dedup_expr_types: tuple[str, ...] = ()  # candidate "idiom" expression nodes
+    identifier_types: tuple[str, ...] = ()  # variable-reference nodes (blanked when normalizing)
+    call_types: tuple[str, ...] = ()  # call nodes whose `function` child is a callee (protected from blanking)
+    dedup_significant_types: tuple[str, ...] = ()  # operators/literals — inline logic worth extracting
 
 
 PYTHON = LanguageMap(
@@ -39,6 +44,10 @@ PYTHON = LanguageMap(
     string_types=("string", "concatenated_string"),
     name_field="name",
     file_extension=".py",
+    dedup_expr_types=("binary_operator", "call"),
+    identifier_types=("identifier",),
+    call_types=("call",),
+    dedup_significant_types=("binary_operator", "integer", "float", "string", "concatenated_string"),
 )
 
 PHP = LanguageMap(
@@ -59,6 +68,11 @@ PHP = LanguageMap(
     string_types=("string", "encapsed_string"),
     name_field="name",
     file_extension=".php",
+    dedup_expr_types=("binary_expression", "function_call_expression",
+                      "member_call_expression", "scoped_call_expression"),
+    identifier_types=("variable_name",),
+    call_types=("function_call_expression", "member_call_expression", "scoped_call_expression"),
+    dedup_significant_types=("binary_expression", "integer", "float", "string", "encapsed_string"),
 )
 
 JAVASCRIPT = LanguageMap(
@@ -81,6 +95,10 @@ JAVASCRIPT = LanguageMap(
     string_types=("string", "template_string"),
     name_field="name",
     file_extension=".js",
+    dedup_expr_types=("binary_expression", "call_expression"),
+    identifier_types=("identifier",),
+    call_types=("call_expression",),
+    dedup_significant_types=("binary_expression", "number", "string", "template_string"),
 )
 
 TYPESCRIPT = LanguageMap(
@@ -102,6 +120,10 @@ TYPESCRIPT = LanguageMap(
     string_types=("string", "template_string"),
     name_field="name",
     file_extension=".ts",
+    dedup_expr_types=("binary_expression", "call_expression"),
+    identifier_types=("identifier",),
+    call_types=("call_expression",),
+    dedup_significant_types=("binary_expression", "number", "string", "template_string"),
 )
 
 GO = LanguageMap(
@@ -120,6 +142,11 @@ GO = LanguageMap(
     string_types=("interpreted_string_literal", "raw_string_literal"),
     name_field="name",
     file_extension=".go",
+    dedup_expr_types=("binary_expression", "call_expression"),
+    identifier_types=("identifier",),
+    call_types=("call_expression",),
+    dedup_significant_types=("binary_expression", "int_literal", "float_literal",
+                             "interpreted_string_literal", "raw_string_literal"),
 )
 
 LANGUAGE_REGISTRY: dict[str, LanguageMap] = {
