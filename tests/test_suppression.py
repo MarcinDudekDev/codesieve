@@ -127,12 +127,21 @@ def test_all_findings_suppressed_restores_perfect(tmp_path):
     assert out.summary == "1 finding(s) suppressed inline"
 
 
-def test_proportional_path_for_non_additive_sieve(tmp_path):
-    # No penalties tagged => proportional: residual 4.0, drop 1 of 2 => residual halved.
+def test_partial_suppression_never_inflates_non_additive_sieve(tmp_path):
+    # No per-finding penalty (ratio/severity sieve) + only one of two dropped =>
+    # score must stay put. Inflating here would let a minor finding launder a grade.
     parsed = _parsed(tmp_path, "a = 1  # codesieve: ignore[Naming]\nb = 2\n")
     naming = _result("Naming", 6.0, [Finding("x", line=1), Finding("y", line=2)])
     out = apply_suppressions([naming], parsed)[0]
-    assert out.score == 8.0  # 10 - (10-6)*0.5
+    assert out.score == 6.0                       # unchanged — no inflation
+    assert [f.line for f in out.findings] == [2]  # minor finding hidden from report
+
+
+def test_full_suppression_of_non_additive_sieve_restores_perfect(tmp_path):
+    parsed = _parsed(tmp_path, "a = 1  # codesieve: ignore[Naming]\nb = 2  # codesieve: ignore[Naming]\n")
+    naming = _result("Naming", 6.0, [Finding("x", line=1), Finding("y", line=2)])
+    out = apply_suppressions([naming], parsed)[0]
+    assert out.score == 10.0  # nothing left to flag
 
 
 # ---- integration: through scan_file (score + grade must reflect suppression) ------------
@@ -164,6 +173,44 @@ def test_string_literal_marker_does_not_game_magicnumbers(tmp_path):
     mn = _sieve(report, "MagicNumbers")
     assert any(f.line == 2 for f in mn.findings), "9999 must still be flagged"
     assert mn.score < 10.0, "string-embedded marker must not inflate the score"
+
+
+def test_suppressing_minor_finding_does_not_launder_ratio_grade(tmp_path):
+    # Auditor repro (TypeHints): two untyped functions; ignore one. The other is
+    # still untyped, so the ratio score must NOT rise vs. no suppression at all.
+    src = (
+        "def a(x, y):\n"
+        "    return x + y\n"
+        "def b(x, y):  # codesieve: ignore[TypeHints]\n"
+        "    return x - y\n"
+    )
+    plain_src = src.replace("  # codesieve: ignore[TypeHints]", "")
+    ignored = scan_file(_write(tmp_path, "ti.py", src), Config())
+    plain = scan_file(_write(tmp_path, "ti_plain.py", plain_src), Config())
+    th_ignored = _sieve(ignored, "TypeHints").score
+    th_plain = _sieve(plain, "TypeHints").score
+    assert th_ignored == th_plain, "partial suppression must not inflate TypeHints"
+
+
+def test_suppressing_shallow_nesting_keeps_deep_violation_score(tmp_path):
+    # Auditor repro (Nesting): a deep function and a shallow one; ignore only the
+    # shallow one. The deep violation dominates the score, which must not move.
+    deep = (
+        "def deep():\n"
+        + "".join("    " * i + f"if x{i}:\n" for i in range(1, 8))
+        + "    " * 8 + "pass\n"
+    )
+    shallow = (
+        "def shallow():  # codesieve: ignore[Nesting]\n"
+        "    if a:\n"
+        "        if b:\n"
+        "            pass\n"
+    )
+    src = deep + shallow
+    plain_src = src.replace("  # codesieve: ignore[Nesting]", "")
+    ignored = scan_file(_write(tmp_path, "ns.py", src), Config())
+    plain = scan_file(_write(tmp_path, "ns_plain.py", plain_src), Config())
+    assert _sieve(ignored, "Nesting").score == _sieve(plain, "Nesting").score
 
 
 def test_aggregate_score_and_grade_reflect_suppression(tmp_path):
