@@ -81,28 +81,28 @@ def _is_suppressed(line: int | None, sieve_name: str,
 def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float:
     """Recompute a sieve's score after some findings were suppressed.
 
-    Three cases, all provably non-gameable:
+    The split is by *how the sieve scores*, and it is categorical — there is no
+    approximation left to game:
 
-    * **All findings suppressed** — the sieve has nothing left to flag, so it
-      returns a perfect score (matches every sieve's own zero-findings path).
-    * **Additive sieves** (each finding carries its ``penalty``: ErrorHandling,
-      MagicNumbers, DeprecatedAPI) — the score is reconstructed *exactly* as
-      ``SCORE_MAX - sum(kept penalties)``, robust even under clamping.
-    * **Ratio/severity sieves** (no per-finding penalty: TypeHints, Naming,
-      Nesting, KISS, GuardClauses, DRY, Comments) with only *partial*
-      suppression — the score is left **unchanged**. We must not inflate it,
-      because a generic scale-by-count would let someone suppress a trivial
-      finding to launder a grade while the worst violation is still live. The
-      finding is hidden from the report but the score stays honest.
+    * **Additive sieves** — every finding carries its own ``penalty``
+      (ErrorHandling, MagicNumbers, DeprecatedAPI). The score is a pure function
+      of the findings, so it is reconstructed *exactly* as
+      ``SCORE_MAX - sum(kept penalties)``. This is correct for both partial
+      suppression and full suppression (all gone → ``sum == 0`` → ``SCORE_MAX``).
+
+    * **Ratio/severity sieves** — no per-finding penalty (TypeHints, Naming,
+      Nesting, KISS, GuardClauses, DRY, Comments). Their score reflects code that
+      the findings do not fully represent (an *unflagged* moderate function still
+      caps KISS below 10), so zero remaining findings does **not** mean a perfect
+      score. Suppression therefore **never moves** these scores — partial or full.
+      It only hides findings from the report. This makes it impossible to raise a
+      non-additive grade by suppressing anything.
     """
-    if not kept:
-        return SCORE_MAX
-
     all_findings = kept + suppressed
     if all(f.penalty is not None for f in all_findings):
         return normalize_score(SCORE_MAX - sum(f.penalty for f in kept))
 
-    return result.score  # partial suppression on a non-additive sieve: never inflate
+    return result.score  # non-additive sieve: suppression must not alter the score
 
 
 def apply_suppressions(results: list[SieveResult], parsed: ParsedFile) -> list[SieveResult]:
