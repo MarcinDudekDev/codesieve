@@ -27,6 +27,7 @@ class Finding:
     line: int | None = None
     function: str | None = None
     severity: str = "info"  # info, warning, error
+    penalty: float | None = None  # score cost this finding contributed (additive sieves only)
 
 
 @dataclass

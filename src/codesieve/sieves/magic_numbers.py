@@ -14,7 +14,7 @@ from codesieve.parser import ast_utils
 from codesieve.scoring import SCORE_MAX
 from codesieve.sieves.base import BaseSieve
 
-ALLOWED_NUMBERS = {0, 1, -1, 2, 0.0, 1.0, 100, 1000}
+ALLOWED_NUMBERS = {0, 1, -1, 2, 100, 1000}
 PENALTY_PER_MAGIC = 0.5
 NUMERIC_TYPES = ("integer", "float", "number", "int_literal", "float_literal")
 
@@ -83,5 +83,6 @@ class MagicNumbersSieve(BaseSieve):
             results.append(Finding(
                 message=f"magic number {display} in {func_name}()",
                 line=node.start_point[0] + 1, function=func_name, severity="info",
+                penalty=PENALTY_PER_MAGIC,
             ))
         return results

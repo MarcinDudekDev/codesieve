@@ -20,6 +20,7 @@ from codesieve.sieves.guard_clauses import GuardClausesSieve
 from codesieve.sieves.deprecated_api import DeprecatedAPISieve
 from codesieve.sieves.comments import CommentsSieve
 from codesieve.sieves.dry import DrySieve
+from codesieve.suppression import apply_suppressions
 
 SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "KISS": KissSieve,
@@ -69,6 +70,7 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
         sieves_to_run = [s for s in sieves_to_run if s.sieve_type == SieveType.DETERMINISTIC]
 
     results = [sieve.analyze(parsed) for sieve in sieves_to_run]
+    results = apply_suppressions(results, parsed)
 
     agg = weighted_average(results, config.weights)
     grade = score_to_grade(agg)
@@ -85,15 +87,18 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
 
 def _collect_diff_files(path: Path, ref: str) -> set[Path]:
     """Collect files changed since ref using git diff."""
+    import shutil
     import subprocess
+    git = shutil.which("git") or "git"
     try:
-        root = subprocess.check_output(
-            ["git", "rev-parse", "--show-toplevel"],
+        # Fixed git argv, no shell; ref is a git revision, not shell input.
+        root = subprocess.check_output(  # noqa: S603
+            [git, "rev-parse", "--show-toplevel"],
             cwd=str(path if path.is_dir() else path.parent),
             text=True,
         ).strip()
-        diff_output = subprocess.check_output(
-            ["git", "diff", "--name-only", "--diff-filter=ACM", ref],
+        diff_output = subprocess.check_output(  # noqa: S603
+            [git, "diff", "--name-only", "--diff-filter=ACM", ref],
             cwd=root,
             text=True,
         ).strip()
@@ -121,7 +126,7 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
     for f in files:
         try:
             reports.append(scan_file(f, config))
-        except Exception as e:
+        except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
             from rich.console import Console
             Console(stderr=True).print(f"[red]Error scanning {f}: {e}[/red]")
 
