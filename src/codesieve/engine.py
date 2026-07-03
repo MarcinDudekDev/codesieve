@@ -85,18 +85,15 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
 
 def _collect_diff_files(path: Path, ref: str) -> set[Path]:
     """Collect files changed since ref using git diff."""
-    import shutil
     import subprocess
-    git = shutil.which("git") or "git"
     try:
-        # Fixed git argv, no shell; ref is a git revision, not shell input.
-        root = subprocess.check_output(  # noqa: S603
-            [git, "rev-parse", "--show-toplevel"],
+        root = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
             cwd=str(path if path.is_dir() else path.parent),
             text=True,
         ).strip()
-        diff_output = subprocess.check_output(  # noqa: S603
-            [git, "diff", "--name-only", "--diff-filter=ACM", ref],
+        diff_output = subprocess.check_output(
+            ["git", "diff", "--name-only", "--diff-filter=ACM", ref],
             cwd=root,
             text=True,
         ).strip()
