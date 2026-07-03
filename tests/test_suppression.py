@@ -88,7 +88,10 @@ def test_additive_score_restored_exactly():
 def test_all_findings_suppressed_restores_perfect():
     source = "a  # codesieve: ignore\n"
     eh = _result("ErrorHandling", 4.0, [Finding("broad", line=1, penalty=1.5)])
-    assert apply_suppressions([eh], source)[0].score == 10.0
+    out = apply_suppressions([eh], source)[0]
+    assert out.score == 10.0
+    # Summary must not keep describing findings that are gone.
+    assert out.summary == "1 finding(s) suppressed inline"
 
 
 def test_proportional_path_for_non_additive_sieve():

@@ -99,5 +99,7 @@ def apply_suppressions(results: list[SieveResult], source_text: str) -> list[Sie
             continue
 
         new_score = _recompute_score(result, kept, dropped)
-        updated.append(replace(result, findings=kept, score=new_score))
+        note = f"{len(dropped)} finding(s) suppressed inline"
+        summary = note if not kept else f"{result.summary} ({note})"
+        updated.append(replace(result, findings=kept, score=new_score, summary=summary))
     return updated
