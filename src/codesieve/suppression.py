@@ -81,11 +81,19 @@ def _is_suppressed(line: int | None, sieve_name: str,
 def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float:
     """Recompute a sieve's score after some findings were suppressed.
 
-    Additive sieves tag each finding with its ``penalty``; there the score is
-    reconstructed exactly as ``SCORE_MAX - sum(kept penalties)`` (robust even when
-    the original score was clamped). Otherwise the residual penalty is scaled down
-    proportionally by how many findings remain. Either way, suppressing *all*
-    findings restores a perfect score.
+    Three cases, all provably non-gameable:
+
+    * **All findings suppressed** — the sieve has nothing left to flag, so it
+      returns a perfect score (matches every sieve's own zero-findings path).
+    * **Additive sieves** (each finding carries its ``penalty``: ErrorHandling,
+      MagicNumbers, DeprecatedAPI) — the score is reconstructed *exactly* as
+      ``SCORE_MAX - sum(kept penalties)``, robust even under clamping.
+    * **Ratio/severity sieves** (no per-finding penalty: TypeHints, Naming,
+      Nesting, KISS, GuardClauses, DRY, Comments) with only *partial*
+      suppression — the score is left **unchanged**. We must not inflate it,
+      because a generic scale-by-count would let someone suppress a trivial
+      finding to launder a grade while the worst violation is still live. The
+      finding is hidden from the report but the score stays honest.
     """
     if not kept:
         return SCORE_MAX
@@ -94,9 +102,7 @@ def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float
     if all(f.penalty is not None for f in all_findings):
         return normalize_score(SCORE_MAX - sum(f.penalty for f in kept))
 
-    residual_penalty = SCORE_MAX - result.score
-    scaled = residual_penalty * (len(kept) / len(all_findings))
-    return normalize_score(SCORE_MAX - scaled)
+    return result.score  # partial suppression on a non-additive sieve: never inflate
 
 
 def apply_suppressions(results: list[SieveResult], parsed: ParsedFile) -> list[SieveResult]:
