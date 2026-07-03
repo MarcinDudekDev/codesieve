@@ -70,7 +70,7 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
         sieves_to_run = [s for s in sieves_to_run if s.sieve_type == SieveType.DETERMINISTIC]
 
     results = [sieve.analyze(parsed) for sieve in sieves_to_run]
-    results = apply_suppressions(results, parsed.source_text)
+    results = apply_suppressions(results, parsed)
 
     agg = weighted_average(results, config.weights)
     grade = score_to_grade(agg)

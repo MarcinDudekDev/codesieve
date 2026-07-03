@@ -6,7 +6,11 @@ A trailing comment on a source line silences findings anchored to that line:
     risky()  # codesieve: ignore[ErrorHandling]  -> drop only ErrorHandling findings
     risky()  # codesieve: ignore[ErrorHandling,Naming]  -> comma-separated list
 
-Both ``#`` (Python/PHP) and ``//`` (JS/TS/Go) comment prefixes are recognised.
+The marker is honoured **only inside a real comment**, never inside a string
+literal — we scan tree-sitter ``comment`` nodes (works for ``#`` in Python/PHP and
+``//`` / ``/* */`` in JS/TS/Go/PHP), so a file cannot self-suppress by mentioning
+the marker in a string. Sieve names are matched case-insensitively; an unknown
+name is warned about rather than silently ignored.
 
 Suppression is applied where sieve results are aggregated (``engine.scan_file``),
 *before* the weighted average is taken, so a suppressed finding removes its score
@@ -19,34 +23,51 @@ import re
 from dataclasses import replace
 
 from codesieve.models import SieveResult
+from codesieve.parser import ast_utils
+from codesieve.parser.treesitter import ParsedFile
 from codesieve.scoring import SCORE_MAX, normalize_score
 
-# `# codesieve: ignore` optionally followed by `[Sieve,Other]`. `//` prefix too.
-_SUPPRESS_RE = re.compile(
-    r"(?:#|//)\s*codesieve:\s*ignore(?:\[([^\]]*)\])?",
-    re.IGNORECASE,
-)
+# Matched only within comment text, so the `#`/`//` prefix is already guaranteed.
+_SUPPRESS_RE = re.compile(r"codesieve:\s*ignore(?:\[([^\]]*)\])?", re.IGNORECASE)
 
 # Sentinel value in the suppression map meaning "every sieve on this line".
 _ALL = None
 
 
-def parse_suppressions(source_text: str) -> dict[int, frozenset[str] | None]:
-    """Map 1-based line number -> suppressed sieve names, or ``None`` for all sieves."""
+def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
+    """Map 1-based line number -> lowercased sieve names, or ``None`` for all sieves.
+
+    Only real comment nodes are inspected, so markers inside string literals are
+    ignored. Names are lowercased here; callers compare case-insensitively.
+    """
     suppressed: dict[int, frozenset[str] | None] = {}
-    for lineno, line in enumerate(source_text.splitlines(), start=1):
-        match = _SUPPRESS_RE.search(line)
+    for node in parsed.get_comments():
+        text = ast_utils.get_node_text(node, parsed.source)
+        match = _SUPPRESS_RE.search(text)
         if match is None:
             continue
+        lineno = node.start_point[0] + 1
         raw_names = match.group(1)
         if raw_names is None or not raw_names.strip():
             suppressed[lineno] = _ALL  # bare ignore -> silence everything on this line
             continue
-        names = frozenset(n.strip() for n in raw_names.split(",") if n.strip())
-        # A bare ignore already on this line wins; otherwise merge named sets.
+        names = frozenset(n.strip().lower() for n in raw_names.split(",") if n.strip())
         existing = suppressed.get(lineno, frozenset())
         suppressed[lineno] = existing if existing is _ALL else (existing | names)
     return suppressed
+
+
+def _warn_unknown_names(suppressed: dict[int, frozenset[str] | None],
+                        known_lower: set[str], path: str) -> None:
+    requested = {n for names in suppressed.values() if names is not _ALL for n in names}
+    unknown = sorted(requested - known_lower)
+    if not unknown:
+        return
+    from rich.console import Console
+    Console(stderr=True).print(
+        f"[yellow]codesieve: unknown sieve name(s) in ignore comment: "
+        f"{', '.join(unknown)} ({path})[/yellow]"
+    )
 
 
 def _is_suppressed(line: int | None, sieve_name: str,
@@ -54,7 +75,7 @@ def _is_suppressed(line: int | None, sieve_name: str,
     if line is None or line not in suppressed:
         return False
     names = suppressed[line]
-    return names is _ALL or sieve_name in names
+    return names is _ALL or sieve_name.lower() in names
 
 
 def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float:
@@ -78,11 +99,13 @@ def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float
     return normalize_score(SCORE_MAX - scaled)
 
 
-def apply_suppressions(results: list[SieveResult], source_text: str) -> list[SieveResult]:
+def apply_suppressions(results: list[SieveResult], parsed: ParsedFile) -> list[SieveResult]:
     """Drop findings matched by inline ignore comments and repair each sieve's score."""
-    suppressed = parse_suppressions(source_text)
+    suppressed = parse_suppressions(parsed)
     if not suppressed:
         return results
+
+    _warn_unknown_names(suppressed, {r.name.lower() for r in results}, parsed.filepath)
 
     updated: list[SieveResult] = []
     for result in results:
