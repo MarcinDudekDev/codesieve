@@ -137,11 +137,22 @@ def test_partial_suppression_never_inflates_non_additive_sieve(tmp_path):
     assert [f.line for f in out.findings] == [2]  # minor finding hidden from report
 
 
-def test_full_suppression_of_non_additive_sieve_restores_perfect(tmp_path):
+def test_full_suppression_of_non_additive_sieve_leaves_score_untouched(tmp_path):
+    # Categorical rule: a ratio sieve's score is NOT a pure function of its
+    # findings (unflagged code still bounds it), so even suppressing *all* its
+    # findings must not hand out a 10.
     parsed = _parsed(tmp_path, "a = 1  # codesieve: ignore[Naming]\nb = 2  # codesieve: ignore[Naming]\n")
     naming = _result("Naming", 6.0, [Finding("x", line=1), Finding("y", line=2)])
     out = apply_suppressions([naming], parsed)[0]
-    assert out.score == 10.0  # nothing left to flag
+    assert out.score == 6.0        # unchanged — suppression never moves a ratio score
+    assert out.findings == []      # findings still hidden from the report
+
+
+def test_full_suppression_of_additive_sieve_restores_perfect(tmp_path):
+    # Additive sieves ARE a pure function of findings, so all-suppressed => 10.0.
+    parsed = _parsed(tmp_path, "a = 1  # codesieve: ignore[ErrorHandling]\n")
+    eh = _result("ErrorHandling", 4.0, [Finding("broad", line=1, penalty=1.5)])
+    assert apply_suppressions([eh], parsed)[0].score == 10.0
 
 
 # ---- integration: through scan_file (score + grade must reflect suppression) ------------
@@ -211,6 +222,29 @@ def test_suppressing_shallow_nesting_keeps_deep_violation_score(tmp_path):
     ignored = scan_file(_write(tmp_path, "ns.py", src), Config())
     plain = scan_file(_write(tmp_path, "ns_plain.py", plain_src), Config())
     assert _sieve(ignored, "Nesting").score == _sieve(plain, "Nesting").score
+
+
+def test_full_suppression_of_ratio_sieve_findings_never_reaches_ten(tmp_path):
+    # Auditor repro (KISS): a flagged complex function carries the ONLY KISS
+    # finding; an unflagged-but-moderate function still caps KISS below 10.
+    # Suppressing every KISS finding must NOT hand out a perfect score.
+    moderate = (
+        "def moderate(x):\n"
+        + "".join(f"    if x == {i}:\n        pass\n" for i in range(1, 5))  # CC 5, unflagged
+    )
+    complex_fn = (
+        "def complex_fn(x):  # codesieve: ignore[KISS]\n"
+        + "".join(f"    if x == {i}:\n        pass\n" for i in range(1, 12))  # CC 12, flagged
+    )
+    src = moderate + complex_fn
+    plain_src = src.replace("  # codesieve: ignore[KISS]", "")
+    ignored = scan_file(_write(tmp_path, "kiss.py", src), Config())
+    plain = scan_file(_write(tmp_path, "kiss_plain.py", plain_src), Config())
+
+    kiss_ignored = _sieve(ignored, "KISS")
+    assert kiss_ignored.findings == [], "the complex fn's KISS finding is suppressed"
+    assert kiss_ignored.score < 10.0, "unflagged moderate code must still bound KISS"
+    assert kiss_ignored.score == _sieve(plain, "KISS").score, "score must not move at all"
 
 
 def test_aggregate_score_and_grade_reflect_suppression(tmp_path):
