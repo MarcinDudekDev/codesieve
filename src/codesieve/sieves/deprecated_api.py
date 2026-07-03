@@ -19,9 +19,9 @@ def _make_finding(func_name: str, entry: tuple[str, str, str], line: int) -> tup
     replacement, severity, version = entry
     if severity == "removed":
         msg = f"{func_name}() removed in {version} — use {replacement}"
-        return Finding(message=msg, line=line, severity="error"), REMOVED_PENALTY
+        return Finding(message=msg, line=line, severity="error", penalty=REMOVED_PENALTY), REMOVED_PENALTY
     msg = f"{func_name}() deprecated since {version} — use {replacement}"
-    return Finding(message=msg, line=line, severity="warning"), DEPRECATED_PENALTY
+    return Finding(message=msg, line=line, severity="warning", penalty=DEPRECATED_PENALTY), DEPRECATED_PENALTY
 
 
 def _build_summary(findings: list[Finding]) -> str:
@@ -64,6 +64,8 @@ class DeprecatedAPISieve(BaseSieve):
         if isinstance(rules, ExtendedDeprecatedAPIRules):
             for finding, penalty in rules.check_extra_patterns(parsed):
                 score -= penalty
+                if finding.penalty is None:
+                    finding.penalty = penalty
                 findings.append(finding)
 
         if not findings:

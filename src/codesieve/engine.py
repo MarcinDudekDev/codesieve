@@ -20,6 +20,7 @@ from codesieve.sieves.guard_clauses import GuardClausesSieve
 from codesieve.sieves.deprecated_api import DeprecatedAPISieve
 from codesieve.sieves.comments import CommentsSieve
 from codesieve.sieves.dry import DrySieve
+from codesieve.suppression import apply_suppressions
 
 SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "KISS": KissSieve,
@@ -69,6 +70,7 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
         sieves_to_run = [s for s in sieves_to_run if s.sieve_type == SieveType.DETERMINISTIC]
 
     results = [sieve.analyze(parsed) for sieve in sieves_to_run]
+    results = apply_suppressions(results, parsed.source_text)
 
     agg = weighted_average(results, config.weights)
     grade = score_to_grade(agg)
@@ -124,7 +126,7 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
     for f in files:
         try:
             reports.append(scan_file(f, config))
-        except Exception as e:
+        except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
             from rich.console import Console
             Console(stderr=True).print(f"[red]Error scanning {f}: {e}[/red]")
 

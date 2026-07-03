@@ -85,7 +85,7 @@ def _process_handlers(try_nodes: list[tree_sitter.Node], source: bytes,
             line = child.start_point[0] + 1
             for message, penalty, severity in _check_handler(child, source, rules):
                 score_delta += penalty
-                findings.append(Finding(message=message, line=line, severity=severity))
+                findings.append(Finding(message=message, line=line, severity=severity, penalty=penalty))
                 key = _classify_finding(message)
                 if key:
                     counts[key] += 1
