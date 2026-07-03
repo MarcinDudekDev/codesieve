@@ -83,5 +83,6 @@ class MagicNumbersSieve(BaseSieve):
             results.append(Finding(
                 message=f"magic number {display} in {func_name}()",
                 line=node.start_point[0] + 1, function=func_name, severity="info",
+                penalty=PENALTY_PER_MAGIC,
             ))
         return results
