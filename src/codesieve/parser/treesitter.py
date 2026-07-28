@@ -13,6 +13,7 @@ import tree_sitter_javascript as tsjs
 import tree_sitter_typescript as tsts
 import tree_sitter_go as tsgo
 
+from codesieve import standards
 from codesieve.parser.languages import LanguageMap, LANGUAGE_REGISTRY, detect_language
 from codesieve.parser import ast_utils
 
@@ -57,7 +58,7 @@ class ClassInfo:
 class ParsedFile:
     """Wrapper around a tree-sitter parse tree with convenience methods."""
 
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, standard: str = standards.DEFAULT):
         self.filepath = filepath
         self.language = detect_language(filepath)
         if self.language is None:
@@ -78,6 +79,7 @@ class ParsedFile:
         self.tree: tree_sitter.Tree = parser.parse(self.source)
         self.root: tree_sitter.Node = self.tree.root_node
         self.line_count: int = len(self.source_text.splitlines())
+        self.standard: str = standards.resolve(standard, self.language, filepath, self.source_text)
 
     def get_functions(self) -> list[FunctionInfo]:
         """Extract all function/method definitions (cached)."""

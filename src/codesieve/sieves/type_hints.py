@@ -41,7 +41,7 @@ class TypeHintsSieve(BaseSieve):
     default_weight = 0.08
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.type_hints if pack else None
 
         if rules is None or not rules.supported:

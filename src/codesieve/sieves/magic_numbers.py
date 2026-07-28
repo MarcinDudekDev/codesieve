@@ -48,7 +48,7 @@ class MagicNumbersSieve(BaseSieve):
         if not functions:
             return self.perfect("No functions found")
 
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.magic_numbers if pack else None
         if rules is None:
             return self.skip("No magic number rules for this language")

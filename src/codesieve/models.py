@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 
+from codesieve import standards
+
 
 class SieveType(str, Enum):
     DETERMINISTIC = "deterministic"
@@ -48,6 +50,7 @@ class FileReport:
     path: str
     language: str
     line_count: int
+    standard: str = standards.DEFAULT
     sieve_results: list[SieveResult] = field(default_factory=list)
     aggregate_score: float = 0.0
     grade: Grade = Grade.F

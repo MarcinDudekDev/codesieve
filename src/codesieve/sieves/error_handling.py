@@ -99,7 +99,7 @@ class ErrorHandlingSieve(BaseSieve):
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.error_handling if pack else None
         if rules is None:
             return self.skip("No error handling rules for this language")

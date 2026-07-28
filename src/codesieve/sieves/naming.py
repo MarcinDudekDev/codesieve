@@ -73,7 +73,7 @@ class NamingSieve(BaseSieve):
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.naming if pack else None
         if rules is None:
             return self.skip("No naming rules for this language")

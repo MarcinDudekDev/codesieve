@@ -58,7 +58,7 @@ def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
 def scan_file(filepath: str | Path, config: Config) -> FileReport:
     """Scan a single file through configured sieves."""
     filepath = Path(filepath)
-    parsed = ParsedFile(str(filepath))
+    parsed = ParsedFile(str(filepath), standard=config.standard)
 
     sieves_to_run = [
         SIEVE_REGISTRY[name]()
@@ -78,6 +78,7 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
     return FileReport(
         path=str(filepath),
         language=parsed.language,
+        standard=parsed.standard,
         line_count=parsed.line_count,
         sieve_results=results,
         aggregate_score=agg,

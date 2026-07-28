@@ -15,7 +15,7 @@ class CommentsSieve(BaseSieve):
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.comments if pack else None
 
         if rules is None or not rules.supported:

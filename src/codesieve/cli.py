@@ -7,7 +7,7 @@ import sys
 import click
 from rich.console import Console
 
-from codesieve import __version__
+from codesieve import __version__, standards
 from codesieve.config import Config, generate_default_config
 from codesieve.engine import scan, SIEVE_REGISTRY
 from codesieve.report import render_scan_report, report_to_json, report_to_sarif
@@ -28,10 +28,12 @@ def main():
 @click.option("--sieves", type=str, default=None, help="Comma-separated list of sieves to run")
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Path to .codesieve.yml")
 @click.option("--exclude", "exclude_patterns", type=str, default=None, help="Comma-separated glob patterns to exclude")
+@click.option("--standard", type=click.Choice(standards.CHOICES), default=None,
+              help="Coding standard to grade against (default: psr; use wordpress for WPCS)")
 @click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD", help="Only scan files changed since REF (default: HEAD)")
 def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float | None,
              sieves: str | None, config_path: str | None, exclude_patterns: str | None,
-             diff_ref: str | None):
+             standard: str | None, diff_ref: str | None):
     """Scan a file or directory for code quality."""
     config = Config.load(config_path)
 
@@ -44,6 +46,8 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float 
         config.fail_under = fail_under
     if sieves:
         config.sieves = [s.strip() for s in sieves.split(",")]
+    if standard:
+        config.standard = standard
     if exclude_patterns:
         config.exclude.extend([p.strip() for p in exclude_patterns.split(",")])
 

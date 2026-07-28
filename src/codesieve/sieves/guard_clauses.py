@@ -30,7 +30,7 @@ def _get_significant_children(body: tree_sitter.Node, rules) -> list[tree_sitter
 
 def _needs_guard_clause(func: FunctionInfo, parsed: ParsedFile) -> bool:
     """Check if a function wraps its entire body in a single non-trivial if block."""
-    pack = get_lang_pack(parsed.language)
+    pack = get_lang_pack(parsed.language, parsed.standard)
     rules = pack.guard_clauses if pack else None
 
     body = func.node.child_by_field_name("body")

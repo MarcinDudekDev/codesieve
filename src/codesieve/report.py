@@ -8,6 +8,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
+from codesieve import standards
 from codesieve.models import FileReport, ScanReport, SieveType
 
 
@@ -32,7 +33,10 @@ def render_file_report(report: FileReport, console: Console | None = None) -> No
     """Render a file report as a Rich table with findings."""
     console = console or Console()
 
-    title = f"CodeSieve Report — {report.path} ({report.line_count} lines, {report.language.title()})"
+    descriptor = f"{report.line_count} lines, {report.language.title()}"
+    if report.standard != standards.DEFAULT:
+        descriptor += f", {report.standard} standard"
+    title = f"CodeSieve Report — {report.path} ({descriptor})"
     table = Table(title=title, show_header=True, header_style="bold")
     table.add_column("Sieve", style="bold", width=14)
     table.add_column("Score", justify="center", width=7)
@@ -100,6 +104,7 @@ def report_to_json(report: ScanReport) -> str:
         file_data = {
             "path": fr.path,
             "language": fr.language,
+            "standard": fr.standard,
             "line_count": fr.line_count,
             "aggregate_score": fr.aggregate_score,
             "grade": fr.grade.value,

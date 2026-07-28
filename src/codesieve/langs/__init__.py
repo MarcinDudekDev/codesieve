@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from codesieve import standards
+
 if TYPE_CHECKING:
     from codesieve.langs.protocols import (
         CommentRules,
@@ -28,18 +30,22 @@ class LanguagePack:
     comments: CommentRules | None = None
 
 
-_REGISTRY: dict[str, LanguagePack] = {}
+_REGISTRY: dict[tuple[str, str], LanguagePack] = {}
 
 
-def register_lang_pack(language: str, pack: LanguagePack) -> None:
-    """Register a language pack for a given language identifier."""
-    _REGISTRY[language] = pack
+def register_lang_pack(language: str, pack: LanguagePack, standard: str = standards.FALLBACK) -> None:
+    """Register a language pack, optionally as the variant for a coding standard."""
+    _REGISTRY[(language, standard)] = pack
 
 
-def get_lang_pack(language: str) -> LanguagePack | None:
-    """Look up the language pack for a language. Returns None if not registered."""
-    return _REGISTRY.get(language)
+def get_lang_pack(language: str, standard: str = standards.FALLBACK) -> LanguagePack | None:
+    """Look up the pack for a language under a coding standard.
+
+    Falls back to the language's default pack when it has no variant for the
+    requested standard — most languages have exactly one convention set.
+    """
+    return _REGISTRY.get((language, standard)) or _REGISTRY.get((language, standards.FALLBACK))
 
 
 # Auto-import language modules to trigger registration
-from codesieve.langs import python, php, javascript, typescript, go  # noqa: E402, F401
+from codesieve.langs import python, php, php_wordpress, javascript, typescript, go  # noqa: E402, F401

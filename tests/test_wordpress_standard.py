@@ -1,0 +1,151 @@
+"""Tests for --standard=wordpress (WPCS) vs the default PSR-1/PSR-12 grading."""
+
+from pathlib import Path
+
+import pytest
+
+from codesieve import standards
+from codesieve.config import Config
+from codesieve.engine import scan_file
+from codesieve.langs import get_lang_pack
+from codesieve.parser.treesitter import ParsedFile
+from codesieve.sieves.naming import NamingSieve
+from codesieve.sieves.type_hints import TypeHintsSieve
+
+WP_FIXTURE = Path(__file__).parent / "wp_fixtures" / "class-log-normalizer.php"
+
+
+def _write_php(tmp_path: Path, name: str, source: str) -> str:
+    target = tmp_path / name
+    target.write_text(source)
+    return str(target)
+
+
+# --- The two standards must be demonstrably different on the same file ---
+
+def test_wp_fixture_scores_badly_under_psr():
+    result = NamingSieve().analyze(ParsedFile(str(WP_FIXTURE), standard=standards.PSR))
+    assert result.score <= 5.0, f"WPCS code should score poorly under PSR, got {result.score}"
+    assert any("PSR-1" in f.message for f in result.findings)
+
+
+def test_wp_fixture_scores_perfectly_under_wordpress():
+    result = NamingSieve().analyze(ParsedFile(str(WP_FIXTURE), standard=standards.WORDPRESS))
+    assert result.score == 10.0, f"WPCS code should be clean under WPCS, got {result.score}"
+    assert result.findings == []
+
+
+def test_wp_fixture_grade_improves_end_to_end():
+    psr = scan_file(WP_FIXTURE, Config(standard=standards.PSR))
+    wordpress = scan_file(WP_FIXTURE, Config(standard=standards.WORDPRESS))
+    assert wordpress.aggregate_score > psr.aggregate_score
+    assert wordpress.standard == standards.WORDPRESS
+    assert psr.standard == standards.PSR
+
+
+# --- Naming rules ---
+
+@pytest.mark.parametrize("class_name", ["SQ_Probe", "Log_Normalizer", "Module_Base", "WP_Query"])
+def test_wp_class_names_accepted(tmp_path, class_name):
+    path = _write_php(tmp_path, f"{class_name}.php", f"<?php\nclass {class_name} {{}}\n")
+    result = NamingSieve().analyze(ParsedFile(path, standard=standards.WORDPRESS))
+    assert result.findings == []
+
+
+@pytest.mark.parametrize("class_name", ["sq_probe", "logNormalizer", "Module_base"])
+def test_wp_class_names_rejected(tmp_path, class_name):
+    path = _write_php(tmp_path, f"{class_name}.php", f"<?php\nclass {class_name} {{}}\n")
+    result = NamingSieve().analyze(ParsedFile(path, standard=standards.WORDPRESS))
+    assert len(result.findings) == 1
+    assert "WPCS" in result.findings[0].message
+
+
+def test_wp_methods_must_be_snake_case(tmp_path):
+    source = (
+        "<?php\nclass Log_Normalizer {\n"
+        "    public function normalize_line() { return 1; }\n"
+        "    public function normalizeLine() { return 2; }\n"
+        "}\n"
+    )
+    result = NamingSieve().analyze(ParsedFile(_write_php(tmp_path, "m.php", source), standard=standards.WORDPRESS))
+    violations = [f for f in result.findings if "snake_case" in f.message]
+    assert len(violations) == 1
+    assert "normalizeLine" in violations[0].message
+
+
+def test_wp_magic_methods_still_allowed(tmp_path):
+    source = "<?php\nclass Log_Normalizer {\n    public function __construct() {}\n}\n"
+    result = NamingSieve().analyze(ParsedFile(_write_php(tmp_path, "c.php", source), standard=standards.WORDPRESS))
+    assert result.findings == []
+
+
+# --- TypeHints: strict_types suppressed, coverage check intact ---
+
+def test_wp_does_not_demand_strict_types(tmp_path):
+    source = "<?php\nfunction render_notice( string $text ): string { return $text; }\n"
+    path = _write_php(tmp_path, "t.php", source)
+    psr = TypeHintsSieve().analyze(ParsedFile(path, standard=standards.PSR))
+    wordpress = TypeHintsSieve().analyze(ParsedFile(path, standard=standards.WORDPRESS))
+    assert any("strict_types" in f.message for f in psr.findings)
+    assert not any("strict_types" in f.message for f in wordpress.findings)
+    assert wordpress.score == 10.0
+
+
+def test_wp_still_demands_param_and_return_types(tmp_path):
+    source = "<?php\nfunction render_notice( $text ) { return $text; }\n"
+    result = TypeHintsSieve().analyze(ParsedFile(_write_php(tmp_path, "u.php", source), standard=standards.WORDPRESS))
+    assert result.score < 10.0
+    assert any("missing type declaration" in f.message for f in result.findings)
+    assert any("missing return type annotation" in f.message for f in result.findings)
+
+
+# --- Auto-detection ---
+
+def test_auto_detects_wordpress_from_source_markers():
+    parsed = ParsedFile(str(WP_FIXTURE), standard=standards.AUTO)
+    assert parsed.standard == standards.WORDPRESS
+
+
+def test_auto_detects_wordpress_from_path(tmp_path):
+    plugin_dir = tmp_path / "wp-content" / "plugins" / "demo"
+    plugin_dir.mkdir(parents=True)
+    path = _write_php(plugin_dir, "thing.php", "<?php\nclass Thing {}\n")
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.WORDPRESS
+
+
+def test_auto_falls_back_to_psr_for_plain_php(tmp_path):
+    source = "<?php\nnamespace App;\nclass UserRepository { public function findById(int $id): int { return $id; } }\n"
+    path = _write_php(tmp_path, "UserRepository.php", source)
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.PSR
+
+
+def test_auto_needs_more_than_one_weak_marker(tmp_path):
+    """A lone get_option() call is not enough to declare a file WordPress."""
+    path = _write_php(tmp_path, "Solo.php", "<?php\nfunction read() { return get_option('x'); }\n")
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.PSR
+
+
+def test_auto_is_a_noop_for_non_php(tmp_path):
+    path = str(tmp_path / "mod.py")
+    Path(path).write_text("def add_action(hook):\n    return hook\n")
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.PSR
+
+
+# --- Registry / config plumbing ---
+
+def test_unknown_standard_falls_back_to_default_pack():
+    assert get_lang_pack("php", "not-a-standard") is get_lang_pack("php")
+
+
+def test_non_php_languages_ignore_the_standard():
+    assert get_lang_pack("python", standards.WORDPRESS) is get_lang_pack("python")
+
+
+def test_config_reads_standard_from_yaml(tmp_path):
+    config_file = tmp_path / ".codesieve.yml"
+    config_file.write_text("standard: wordpress\n")
+    assert Config.load(config_file).standard == standards.WORDPRESS
+
+
+def test_config_defaults_to_psr():
+    assert Config().standard == standards.PSR

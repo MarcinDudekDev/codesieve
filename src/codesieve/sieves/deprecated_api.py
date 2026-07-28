@@ -42,7 +42,7 @@ class DeprecatedAPISieve(BaseSieve):
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
-        pack = get_lang_pack(parsed.language)
+        pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.deprecated_api if pack else None
 
         if rules is None or not rules.supported:

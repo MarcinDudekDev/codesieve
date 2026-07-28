@@ -53,6 +53,10 @@ codesieve scan src/ --fail-under 7.0
 # Run specific sieves only
 codesieve scan src/ --sieves KISS,Naming,TypeHints
 
+# Grade PHP against the WordPress Coding Standards instead of PSR
+codesieve scan wp-content/plugins/my-plugin/ --standard wordpress
+codesieve scan wp-content/plugins/my-plugin/ --standard auto
+
 # List all available sieves
 codesieve sieves
 ```
@@ -86,6 +90,27 @@ CodeSieve understands PHP idioms and enforces established standards:
 - **Error handling**: detects empty catch blocks, broad `\Exception`/`\Throwable` catches without re-throw
 - **Deprecated API detection**: 24 deprecated/removed functions (mysql_*, ereg*, `each()`, `create_function()`, `utf8_encode()`, `strftime()`) with specific replacement suggestions and PHP version references
 
+### WordPress mode
+
+WordPress code is not PSR code, and grading it as if it were produces a flood of
+false positives. `--standard=wordpress` swaps in the WordPress Coding Standards:
+
+| Rule | `--standard=psr` (default) | `--standard=wordpress` |
+|---|---|---|
+| Functions / methods | `camelCase` | `snake_case` |
+| Classes | `PascalCase` | `Capitalized_Words_With_Underscores` (`SQ_Probe`) |
+| Constants | `UPPER_SNAKE_CASE` | `UPPER_SNAKE_CASE` (no conflict) |
+| `declare(strict_types=1)` | required (PSR-12 §2.1) | not expected |
+
+`--standard=auto` picks WordPress mode when the file sits under `wp-content/`,
+`wp-includes/`, or `wp-admin/`, or when its source carries at least two
+WordPress fingerprints (a `Plugin Name:`/`Theme Name:` header, `add_action()`,
+`esc_html()`, `ABSPATH`, `WP_Query`, …). Everything else stays on PSR.
+
+WordPress mode does **not** weaken the TypeHints coverage check — modern WP
+plugins can and should declare PHP 7.4+ parameter and return types. Only the
+`strict_types` line item is dropped. Every other sieve behaves identically.
+
 ## Configuration
 
 Create a `.codesieve.yml` in your project root:
@@ -112,6 +137,9 @@ weights:
   DeprecatedAPI: 0.05
 
 fail_under: 7.0
+
+# Coding standard to grade PHP against: psr (default) | wordpress | auto
+standard: wordpress
 ```
 
 Adjust weights to match what matters most for your project. Sieves with weight `0` are skipped.
