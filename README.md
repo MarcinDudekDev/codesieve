@@ -14,9 +14,9 @@ Traditional linters focus on style. CodeSieve focuses on **design principles** -
 |-------|-----------------|
 | **KISS** | Cyclomatic complexity, function length, parameter count |
 | **Nesting** | Max and average nesting depth of control flow |
-| **Naming** | Convention compliance (PEP 8 for Python, PSR-1/PSR-12 for PHP), abbreviated names |
+| **Naming** | Convention compliance (PEP 8 for Python, PSR-1/PSR-12 **or WPCS** for PHP), abbreviated names |
 | **ErrorHandling** | Bare excepts, empty handlers, broad catches without re-raise |
-| **TypeHints** | Type annotation coverage, `declare(strict_types=1)` for PHP (PSR-12) |
+| **TypeHints** | Type annotation coverage, `declare(strict_types=1)` for PHP (PSR-12 only) |
 | **MagicNumbers** | Unexplained numeric literals in function bodies |
 | **GuardClauses** | Functions wrapping entire body in a single if-block |
 | **DeprecatedAPI** | Calls to deprecated/removed PHP functions with replacement suggestions |
@@ -87,6 +87,7 @@ CodeSieve understands PHP idioms and enforces established standards:
 
 - **PSR-1 naming**: camelCase methods, PascalCase classes, UPPER_SNAKE constants -- with standard citations in findings
 - **PSR-12 strict types**: flags files missing `declare(strict_types=1)`
+- **WordPress Coding Standards**: `--standard=wordpress` grades WordPress PHP against WPCS instead of PSR (see below)
 - **Error handling**: detects empty catch blocks, broad `\Exception`/`\Throwable` catches without re-throw
 - **Deprecated API detection**: 24 deprecated/removed functions (mysql_*, ereg*, `each()`, `create_function()`, `utf8_encode()`, `strftime()`) with specific replacement suggestions and PHP version references
 
@@ -119,7 +120,7 @@ between them:
 Step 2 exists because hybrid codebases are common: WPCS file names
 (`class-foo.php`) and WPCS class names (`Module_Base`) wrapped around
 predominantly PSR-style camelCase methods. On one real 110-file plugin, forcing
-`wordpress` scored *worse* than the default (8.4 vs 8.6) because it flagged 737
+`wordpress` scored *worse* than the default (8.6 vs 8.8) because it flagged 737
 camelCase methods. The vote resolves that plugin to `psr` correctly.
 
 The vote is pooled across the whole scan, so every file in a directory is graded
@@ -194,10 +195,10 @@ repos:
 | Language | Status | Standards |
 |----------|--------|-----------|
 | Python | Supported | PEP 8 |
-| PHP | Supported | PSR-1, PSR-12 |
+| PHP | Supported | PSR-1, PSR-12, WordPress (WPCS) — selectable via `--standard` |
 | JavaScript | Supported | camelCase, PascalCase |
 | TypeScript | Supported | camelCase, PascalCase, type annotations |
-| Go | Planned | |
+| Go | Supported | gofmt-style naming |
 
 CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making new language support straightforward -- each language needs its own sieve implementations that understand the language's idioms and conventions.
 
@@ -206,6 +207,8 @@ CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making
 - [x] Python support (8 sieves)
 - [x] PHP support (8 sieves, PSR-1/PSR-12 enforcement, deprecated API detection)
 - [x] JavaScript/TypeScript support (camelCase/PascalCase, TS type annotations)
+- [x] Go support
+- [x] Selectable coding standards (`--standard=psr|wordpress|auto`) with WPCS for WordPress PHP
 - [ ] `--watch` mode for continuous feedback
 - [x] GitHub Actions integration
 - [x] Pre-commit hook
