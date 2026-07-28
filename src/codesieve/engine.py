@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
+from codesieve import standards
 from codesieve.config import Config
 from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
@@ -110,6 +112,23 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path]:
         return set()
 
 
+def _resolve_corpus_standard(files: list[Path], config: Config) -> str:
+    """Resolve an ``auto`` standard once, from the whole set of PHP files.
+
+    Deciding per file would grade siblings against different standards in a
+    codebase with mixed naming; the standard is a property of the codebase.
+    """
+    sources: list[tuple[str, str]] = []
+    for f in files:
+        if detect_language(str(f)) != "php":
+            continue
+        try:
+            sources.append((str(f), f.read_text(encoding="utf-8", errors="replace")))
+        except OSError:
+            continue
+    return standards.resolve_for_corpus(config.standard, sources)
+
+
 def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanReport:
     """Scan a file or directory."""
     path = Path(path)
@@ -122,6 +141,9 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
 
     if not files:
         return ScanReport()
+
+    if config.standard == standards.AUTO:
+        config = replace(config, standard=_resolve_corpus_standard(files, config))
 
     reports = []
     for f in files:

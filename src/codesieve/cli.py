@@ -29,7 +29,11 @@ def main():
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Path to .codesieve.yml")
 @click.option("--exclude", "exclude_patterns", type=str, default=None, help="Comma-separated glob patterns to exclude")
 @click.option("--standard", type=click.Choice(standards.CHOICES), default=None,
-              help="Coding standard to grade against (default: psr; use wordpress for WPCS)")
+              help="Coding standard to grade against (default: psr; use wordpress for WPCS). "
+                   "auto detects the WordPress ecosystem by path/API markers, then pools a "
+                   "method-naming vote across the scanned files and only picks wordpress when "
+                   "snake_case names are not outnumbered — hybrid codebases (WPCS file and class "
+                   "names, camelCase methods) resolve to psr. Set it explicitly to be sure.")
 @click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD", help="Only scan files changed since REF (default: HEAD)")
 def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float | None,
              sieves: str | None, config_path: str | None, exclude_patterns: str | None,

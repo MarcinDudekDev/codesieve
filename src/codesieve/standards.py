@@ -40,9 +40,19 @@ _WP_SOURCE_MARKERS = (
 
 _MIN_SOURCE_MARKERS = 2
 
+#: Named function/method declarations. Deliberately regex rather than a parse:
+#: this is a heuristic vote, and it runs over every file before any of them is
+#: parsed.
+_PHP_CALLABLE_DEF = re.compile(r"\bfunction\s+&?\s*([A-Za-z_]\w*)\s*\(")
+
 
 def looks_like_wordpress(filepath: str, source_text: str) -> bool:
-    """Heuristically decide whether a PHP file belongs to a WordPress codebase."""
+    """Heuristically decide whether a PHP file belongs to a WordPress codebase.
+
+    This answers "is this the WordPress ecosystem?", NOT "does this code follow
+    WPCS naming?" — the two have drifted apart, and plenty of post-2020 plugin
+    code uses PSR-style method names inside WordPress-shaped files.
+    """
     normalized_path = filepath.replace("\\", "/")
     if any(f"/{marker}/" in f"/{normalized_path}/" for marker in _WP_PATH_MARKERS):
         return True
@@ -50,10 +60,70 @@ def looks_like_wordpress(filepath: str, source_text: str) -> bool:
     return hits >= _MIN_SOURCE_MARKERS
 
 
+def count_naming_styles(source_text: str) -> tuple[int, int]:
+    """Count decisively snake_case vs decisively camelCase callable names.
+
+    Names that carry no case signal (``render``) or mix both (``get_Foo``) are
+    excluded — they vote for neither standard. Magic methods are excluded too,
+    since ``__construct`` is mandated by PHP, not by a style guide.
+    """
+    snake = 0
+    camel = 0
+    for match in _PHP_CALLABLE_DEF.finditer(source_text):
+        name = match.group(1)
+        if name.startswith("__"):
+            continue
+        stripped = name.lstrip("_")
+        has_separator = "_" in stripped
+        has_uppercase = any(char.isupper() for char in stripped)
+        if has_separator and not has_uppercase:
+            snake += 1
+        elif has_uppercase and not has_separator:
+            camel += 1
+    return snake, camel
+
+
+def follows_wpcs_naming(snake: int, camel: int) -> bool:
+    """Decide whether the naming vote supports WPCS conventions.
+
+    Ties (including no evidence at all) go to WordPress, so a file with no
+    decisive names defers to the ecosystem signal that got us here.
+    """
+    return snake >= camel
+
+
 def resolve(standard: str, language: str, filepath: str, source_text: str) -> str:
-    """Resolve a possibly-``auto`` standard into a concrete one for this file."""
+    """Resolve a possibly-``auto`` standard into a concrete one for one file.
+
+    Single-file resolution has only that file's names to vote with. Directory
+    scans use :func:`resolve_for_corpus`, which pools the vote so every file in
+    a codebase is graded against the same standard.
+    """
     if standard != AUTO:
         return standard
-    if language == "php" and looks_like_wordpress(filepath, source_text):
-        return WORDPRESS
-    return DEFAULT
+    if language != "php" or not looks_like_wordpress(filepath, source_text):
+        return DEFAULT
+    return WORDPRESS if follows_wpcs_naming(*count_naming_styles(source_text)) else DEFAULT
+
+
+def resolve_for_corpus(standard: str, sources: list[tuple[str, str]]) -> str:
+    """Resolve ``auto`` once for a whole set of ``(filepath, source_text)`` PHP files.
+
+    The path says which ecosystem the code lives in; the pooled naming vote says
+    which standard it actually follows. A hybrid codebase — WPCS file and class
+    names but predominantly camelCase methods — resolves to PSR, because grading
+    it as WPCS would flag every one of those methods.
+    """
+    if standard != AUTO:
+        return standard
+    if not any(looks_like_wordpress(path, text) for path, text in sources):
+        return DEFAULT
+
+    total_snake = 0
+    total_camel = 0
+    for _, text in sources:
+        snake, camel = count_naming_styles(text)
+        total_snake += snake
+        total_camel += camel
+
+    return WORDPRESS if follows_wpcs_naming(total_snake, total_camel) else DEFAULT

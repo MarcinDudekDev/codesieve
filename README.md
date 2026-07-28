@@ -102,10 +102,31 @@ false positives. `--standard=wordpress` swaps in the WordPress Coding Standards:
 | Constants | `UPPER_SNAKE_CASE` | `UPPER_SNAKE_CASE` (no conflict) |
 | `declare(strict_types=1)` | required (PSR-12 §2.1) | not expected |
 
-`--standard=auto` picks WordPress mode when the file sits under `wp-content/`,
-`wp-includes/`, or `wp-admin/`, or when its source carries at least two
-WordPress fingerprints (a `Plugin Name:`/`Theme Name:` header, `add_action()`,
-`esc_html()`, `ABSPATH`, `WP_Query`, …). Everything else stays on PSR.
+`--standard=auto` decides in two steps, because **the ecosystem and the naming
+convention are different questions** and modern WordPress code has drifted
+between them:
+
+1. **Which ecosystem?** WordPress if the path contains `wp-content/`,
+   `wp-includes/`, or `wp-admin/`, or if the source carries at least two
+   WordPress fingerprints (a `Plugin Name:`/`Theme Name:` header,
+   `add_action()`, `esc_html()`, `ABSPATH`, `WP_Query`, …).
+2. **Which naming standard?** Only then does it pool a vote over every
+   `function name(` declaration in the scanned files, and it picks WordPress
+   mode only if decisively snake_case names are not outnumbered by decisively
+   camelCase ones. Names with no case signal (`render`) or a mix (`get_Foo`)
+   vote for neither; `__construct` and friends are excluded.
+
+Step 2 exists because hybrid codebases are common: WPCS file names
+(`class-foo.php`) and WPCS class names (`Module_Base`) wrapped around
+predominantly PSR-style camelCase methods. On one real 110-file plugin, forcing
+`wordpress` scored *worse* than the default (8.4 vs 8.6) because it flagged 737
+camelCase methods. The vote resolves that plugin to `psr` correctly.
+
+The vote is pooled across the whole scan, so every file in a directory is graded
+against one standard rather than flip-flopping file by file. Scanning a single
+file has only that file's names to go on — if you have a codebase with mixed
+conventions, set `standard:` explicitly in `.codesieve.yml` rather than relying
+on `auto`.
 
 WordPress mode does **not** weaken the TypeHints coverage check — modern WP
 plugins can and should declare PHP 7.4+ parameter and return types. Only the

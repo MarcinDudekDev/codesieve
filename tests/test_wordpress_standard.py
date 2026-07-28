@@ -125,6 +125,92 @@ def test_auto_needs_more_than_one_weak_marker(tmp_path):
     assert ParsedFile(path, standard=standards.AUTO).standard == standards.PSR
 
 
+def test_auto_rejects_wordpress_for_camelcase_methods(tmp_path):
+    """A WP-shaped file whose methods are camelCase is a PSR-naming file."""
+    source = (
+        "<?php\n"
+        "if ( ! defined( 'ABSPATH' ) ) { exit; }\n"
+        "add_action( 'init', 'boot' );\n"
+        "class Module_Base {\n"
+        "    public function getInstance() { return 1; }\n"
+        "    public function detectActive() { return 2; }\n"
+        "    public function flushCache() { return 3; }\n"
+        "}\n"
+    )
+    path = _write_php(tmp_path, "class-module-base.php", source)
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.PSR
+
+
+def test_naming_vote_ignores_ambiguous_and_magic_names():
+    source = (
+        "<?php\n"
+        "class Thing {\n"
+        "    public function __construct() {}\n"   # magic — excluded
+        "    public function render() {}\n"        # no case signal — excluded
+        "    public function get_Foo() {}\n"       # mixed — excluded
+        "    public function normalize_line() {}\n"  # snake
+        "    public function detectActive() {}\n"    # camel
+        "}\n"
+    )
+    assert standards.count_naming_styles(source) == (1, 1)
+
+
+def test_naming_vote_ties_go_to_wordpress():
+    assert standards.follows_wpcs_naming(0, 0) is True
+    assert standards.follows_wpcs_naming(3, 3) is True
+    assert standards.follows_wpcs_naming(2, 3) is False
+
+
+def test_corpus_vote_outweighs_a_single_snake_case_file():
+    """The motivating case: one snake_case file inside a camelCase plugin."""
+    sources = [
+        ("wp-content/plugins/x/class-sq-probe.php",
+         "<?php\nclass SQ_Probe {\n public function group_queries() {}\n public function validate_token() {}\n}\n"),
+        ("wp-content/plugins/x/class-options.php",
+         "<?php\nclass Options {\n public function updateValue() {}\n public function readValue() {}\n"
+         " public function flushCache() {}\n public function primeCache() {}\n}\n"),
+    ]
+    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.PSR
+    # ...while that one file, judged alone, still reads as WPCS.
+    assert standards.resolve(standards.AUTO, "php", *sources[0]) == standards.WORDPRESS
+
+
+def test_corpus_vote_keeps_wordpress_for_classic_wpcs_code():
+    sources = [
+        ("wp-content/plugins/x/class-log-normalizer.php",
+         "<?php\nclass Log_Normalizer {\n public function normalize_line() {}\n public function prime_cache() {}\n}\n"),
+        ("wp-content/plugins/x/class-admin-page.php",
+         "<?php\nclass Admin_Page {\n public function render_page() {}\n public function register_hooks() {}\n}\n"),
+    ]
+    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.WORDPRESS
+
+
+def test_corpus_vote_never_upgrades_non_wordpress_code():
+    sources = [("src/UserRepository.php", "<?php\nclass UserRepository { public function find_by_id() {} }\n")]
+    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.PSR
+
+
+def test_explicit_standard_bypasses_the_corpus_vote():
+    sources = [("src/x.php", "<?php\nclass X { public function doThing() {} }\n")]
+    assert standards.resolve_for_corpus(standards.WORDPRESS, sources) == standards.WORDPRESS
+
+
+def test_scan_directory_applies_one_standard_to_every_file(tmp_path):
+    """Directory scans must not flip-flop between standards file by file."""
+    plugin = tmp_path / "wp-content" / "plugins" / "demo"
+    plugin.mkdir(parents=True)
+    _write_php(plugin, "class-sq-probe.php",
+               "<?php\nclass SQ_Probe {\n public function group_queries() {}\n}\n")
+    _write_php(plugin, "class-options.php",
+               "<?php\nclass Options {\n public function updateValue() {}\n"
+               " public function readValue() {}\n public function flushCache() {}\n}\n")
+
+    from codesieve.engine import scan
+    report = scan(plugin, Config(standard=standards.AUTO))
+    assert len(report.file_reports) == 2
+    assert {fr.standard for fr in report.file_reports} == {standards.PSR}
+
+
 def test_auto_is_a_noop_for_non_php(tmp_path):
     path = str(tmp_path / "mod.py")
     Path(path).write_text("def add_action(hook):\n    return hook\n")
