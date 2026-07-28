@@ -10,6 +10,9 @@ import yaml
 from codesieve import standards
 
 
+CONFIG_FILENAME = ".codesieve.yml"
+
+
 DEFAULTS = {
     "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments", "DRY"],
     "weights": {
@@ -34,6 +37,25 @@ DEFAULTS = {
 }
 
 
+def find_config(target: str | Path) -> Path | None:
+    """Search upward from a scan target for the nearest ``.codesieve.yml``.
+
+    The walk stops after examining a directory that looks like a repository
+    root, so a scan never silently picks up an unrelated config from a parent
+    directory or from ``$HOME``.
+    """
+    start = Path(target)
+    directory = (start if start.is_dir() else start.parent).resolve()
+
+    for candidate_dir in (directory, *directory.parents):
+        candidate = candidate_dir / CONFIG_FILENAME
+        if candidate.is_file():
+            return candidate
+        if (candidate_dir / ".git").exists():
+            break
+    return None
+
+
 @dataclass
 class Config:
     sieves: list[str] = field(default_factory=lambda: list(DEFAULTS["sieves"]))
@@ -45,10 +67,34 @@ class Config:
     exclude: list[str] = field(default_factory=lambda: list(DEFAULTS["exclude"]))
 
     @classmethod
+    def discover(cls, target: str | Path, config_path: str | Path | None = None) -> Config:
+        """Load config for a scan target, searching upward from the target itself.
+
+        An explicit ``config_path`` always wins. Otherwise this walks up from the
+        target directory looking for ``.codesieve.yml``, stopping at the first
+        hit or at a repository root.
+
+        When the search finds nothing the result is plain defaults — deliberately
+        *not* the current directory's config. Falling back to the cwd would
+        reintroduce the very coupling this method exists to remove: a target
+        would still score differently depending on where the command was run.
+        """
+        if config_path is not None:
+            return cls.load(config_path)
+        found = find_config(target)
+        return cls.load(found) if found else cls()
+
+    @classmethod
     def load(cls, config_path: str | Path | None = None) -> Config:
-        """Load config from .codesieve.yml, falling back to defaults."""
+        """Load config from .codesieve.yml, falling back to defaults.
+
+        With no path, reads ``.codesieve.yml`` from the current working
+        directory — note that this is independent of what is being scanned, so
+        the same target can score differently from different directories. Use
+        :meth:`discover` to key config off the scan target instead.
+        """
         if config_path is None:
-            config_path = Path.cwd() / ".codesieve.yml"
+            config_path = Path.cwd() / CONFIG_FILENAME
         else:
             config_path = Path(config_path)
 

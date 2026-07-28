@@ -27,6 +27,10 @@ def main():
 @click.option("--fail-under", type=float, default=None, help="Fail if aggregate score is below this threshold")
 @click.option("--sieves", type=str, default=None, help="Comma-separated list of sieves to run")
 @click.option("--config", "config_path", type=click.Path(), default=None, help="Path to .codesieve.yml")
+@click.option("--config-from-target", is_flag=True, default=False,
+              help="Find .codesieve.yml by walking up from the scanned path instead of using the "
+                   "current directory, stopping at the repo root. Makes a scan score the same from "
+                   "anywhere. Uses plain defaults if the target tree has none; --config wins.")
 @click.option("--exclude", "exclude_patterns", type=str, default=None, help="Comma-separated glob patterns to exclude")
 @click.option("--standard", type=click.Choice(standards.CHOICES), default=None,
               help="Coding standard to grade against (default: psr; use wordpress for WPCS). "
@@ -36,10 +40,10 @@ def main():
                    "names, camelCase methods) resolve to psr. Set it explicitly to be sure.")
 @click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD", help="Only scan files changed since REF (default: HEAD)")
 def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float | None,
-             sieves: str | None, config_path: str | None, exclude_patterns: str | None,
-             standard: str | None, diff_ref: str | None):
+             sieves: str | None, config_path: str | None, config_from_target: bool,
+             exclude_patterns: str | None, standard: str | None, diff_ref: str | None):
     """Scan a file or directory for code quality."""
-    config = Config.load(config_path)
+    config = Config.discover(path, config_path) if config_from_target else Config.load(config_path)
 
     # CLI overrides
     if fmt:

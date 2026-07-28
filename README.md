@@ -166,6 +166,20 @@ standard: wordpress
 
 Adjust weights to match what matters most for your project. Sieves with weight `0` are skipped.
 
+### Where the config comes from
+
+By default CodeSieve reads `.codesieve.yml` from the **current working directory**, independently of what you are scanning. That means the same target can score differently depending on where you ran the command — a CI job, a pre-commit hook, and a manual run can silently disagree.
+
+`--config-from-target` keys the config off the scanned path instead:
+
+```bash
+codesieve scan /path/to/other/project/src --config-from-target
+```
+
+It walks up from the target looking for `.codesieve.yml`, stops at the first hit or at a repo root (a `.git` directory), and uses plain defaults if the target tree has none — deliberately *not* the current directory's config, which would reintroduce the coupling the flag removes. An explicit `--config` always wins.
+
+The flag is opt-in, so existing invocations are unaffected.
+
 ## Use with AI Agents
 
 CodeSieve is designed as a quality gate in AI coding loops:
