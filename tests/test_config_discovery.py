@@ -1,6 +1,5 @@
 """Tests for --config-from-target: config keyed off the scan target, not the cwd."""
 
-import os
 from pathlib import Path
 
 import pytest
@@ -163,6 +162,14 @@ def test_relative_target_resolves(project, monkeypatch):
     assert find_config(Path("deep")) == project / CONFIG_FILENAME
 
 
-def test_discovery_survives_a_target_that_is_the_filesystem_root():
-    """Walking up from / must terminate rather than loop or raise."""
-    assert find_config(os.sep) is None or isinstance(find_config(os.sep), Path)
+def test_discovery_terminates_at_the_filesystem_root(tmp_path, monkeypatch):
+    """Walking up from an unconfigured tree must terminate, not loop or raise.
+
+    Rooted in tmp_path rather than os.sep so the assertion is falsifiable: the
+    previous version asserted `is None or isinstance(..., Path)`, which is true
+    of every possible return value and only caught a hang.
+    """
+    deep = tmp_path / "a" / "b" / "c" / "d"
+    deep.mkdir(parents=True)
+    monkeypatch.chdir(tmp_path)
+    assert find_config(deep) is None

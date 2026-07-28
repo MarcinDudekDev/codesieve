@@ -37,6 +37,21 @@ DEFAULTS = {
 }
 
 
+def _validated_standard(value: object, config_path: Path) -> str:
+    """Accept only a known standard, warning and falling back otherwise.
+
+    The CLI gets this for free from ``click.Choice``; YAML does not, and an
+    unrecognised value used to pass silently — the registry fell back to the
+    default pack while the report cheerfully printed the bogus name.
+    """
+    if value in standards.CHOICES:
+        return str(value)
+    import sys
+    print(f"codesieve: unknown standard {value!r} in {config_path}; "
+          f"using {standards.DEFAULT!r}. Valid: {', '.join(standards.CHOICES)}", file=sys.stderr)
+    return standards.DEFAULT
+
+
 def find_config(target: str | Path) -> Path | None:
     """Search upward from a scan target for the nearest ``.codesieve.yml``.
 
@@ -108,7 +123,7 @@ class Config:
             sieves=data.get("sieves", DEFAULTS["sieves"]),
             weights={**DEFAULTS["weights"], **data.get("weights", {})},
             fail_under=data.get("fail_under", 0.0),
-            standard=data.get("standard", DEFAULTS["standard"]),
+            standard=_validated_standard(data.get("standard", DEFAULTS["standard"]), config_path),
             deterministic=data.get("deterministic", False),
             format=data.get("format", "terminal"),
             exclude=data.get("exclude", DEFAULTS["exclude"]),

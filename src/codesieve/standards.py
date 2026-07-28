@@ -10,6 +10,7 @@ against PSR produces violations for code that is correct for its ecosystem.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 
 PSR = "psr"
 WORDPRESS = "wordpress"
@@ -40,10 +41,11 @@ _WP_SOURCE_MARKERS = (
 
 _MIN_SOURCE_MARKERS = 2
 
-#: Named function/method declarations. Deliberately regex rather than a parse:
-#: this is a heuristic vote, and it runs over every file before any of them is
-#: parsed.
-_PHP_CALLABLE_DEF = re.compile(r"\bfunction\s+&?\s*([A-Za-z_]\w*)\s*\(")
+#: Path segments holding third-party code. Their naming conventions describe
+#: their authors, not this codebase, so they are excluded from the naming vote —
+#: a Composer ``vendor/`` tree is large and overwhelmingly camelCase, and would
+#: otherwise outvote the plugin that depends on it.
+_VENDORED_SEGMENTS = ("vendor", "node_modules")
 
 
 def looks_like_wordpress(filepath: str, source_text: str) -> bool:
@@ -60,8 +62,20 @@ def looks_like_wordpress(filepath: str, source_text: str) -> bool:
     return hits >= _MIN_SOURCE_MARKERS
 
 
-def count_naming_styles(source_text: str) -> tuple[int, int]:
+def is_vendored(filepath: str) -> bool:
+    """Check whether a path lies inside a third-party dependency tree."""
+    normalized = f"/{filepath.replace(chr(92), '/')}/"
+    return any(f"/{segment}/" in normalized for segment in _VENDORED_SEGMENTS)
+
+
+def count_naming_styles(names: Iterable[str]) -> tuple[int, int]:
     """Count decisively snake_case vs decisively camelCase callable names.
+
+    Takes names extracted from the parse tree, never from raw source. Matching
+    ``function name(`` textually would count declarations written inside
+    comments, string literals and heredocs — which both misgrades legitimate
+    code (a WordPress plugin embedding inline JS in a heredoc) and hands
+    anyone a way to steer the standard from a comment.
 
     Names that carry no case signal (``render``) or mix both (``get_Foo``) are
     excluded — they vote for neither standard. Magic methods are excluded too,
@@ -69,9 +83,8 @@ def count_naming_styles(source_text: str) -> tuple[int, int]:
     """
     snake = 0
     camel = 0
-    for match in _PHP_CALLABLE_DEF.finditer(source_text):
-        name = match.group(1)
-        if name.startswith("__"):
+    for name in names:
+        if name.startswith("__") or name == "<anonymous>":
             continue
         stripped = name.lstrip("_")
         has_separator = "_" in stripped
@@ -92,37 +105,51 @@ def follows_wpcs_naming(snake: int, camel: int) -> bool:
     return snake >= camel
 
 
-def resolve(standard: str, language: str, filepath: str, source_text: str) -> str:
-    """Resolve a possibly-``auto`` standard into a concrete one for one file.
+def resolve(standard: str, language: str, filepath: str, source_text: str,
+            names: Iterable[str] = ()) -> str:
+    """Resolve a standard into a concrete one for one file.
+
+    Standards describe PHP conventions, so any other language always reports the
+    default — labelling a Python file "wordpress" because a PHP sibling won the
+    corpus vote would be noise, and grading is unaffected either way since the
+    registry has no non-PHP variants.
 
     Single-file resolution has only that file's names to vote with. Directory
     scans use :func:`resolve_for_corpus`, which pools the vote so every file in
     a codebase is graded against the same standard.
     """
+    if language != "php":
+        return DEFAULT
     if standard != AUTO:
         return standard
-    if language != "php" or not looks_like_wordpress(filepath, source_text):
+    if not looks_like_wordpress(filepath, source_text):
         return DEFAULT
-    return WORDPRESS if follows_wpcs_naming(*count_naming_styles(source_text)) else DEFAULT
+    return WORDPRESS if follows_wpcs_naming(*count_naming_styles(names)) else DEFAULT
 
 
-def resolve_for_corpus(standard: str, sources: list[tuple[str, str]]) -> str:
-    """Resolve ``auto`` once for a whole set of ``(filepath, source_text)`` PHP files.
+def resolve_for_corpus(standard: str, sources: list[tuple[str, str, list[str]]]) -> str:
+    """Resolve ``auto`` once for a set of ``(filepath, source_text, names)`` PHP files.
 
     The path says which ecosystem the code lives in; the pooled naming vote says
     which standard it actually follows. A hybrid codebase — WPCS file and class
     names but predominantly camelCase methods — resolves to PSR, because grading
     it as WPCS would flag every one of those methods.
+
+    Vendored trees are excluded from the vote but still count toward ecosystem
+    detection: they are part of the install, they just do not speak for the
+    codebase's own conventions.
     """
     if standard != AUTO:
         return standard
-    if not any(looks_like_wordpress(path, text) for path, text in sources):
+    if not any(looks_like_wordpress(path, text) for path, text, _ in sources):
         return DEFAULT
 
     total_snake = 0
     total_camel = 0
-    for _, text in sources:
-        snake, camel = count_naming_styles(text)
+    for path, _, names in sources:
+        if is_vendored(path):
+            continue
+        snake, camel = count_naming_styles(names)
         total_snake += snake
         total_camel += camel
 

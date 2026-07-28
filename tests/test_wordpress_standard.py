@@ -1,5 +1,6 @@
 """Tests for --standard=wordpress (WPCS) vs the default PSR-1/PSR-12 grading."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,22 @@ def _write_php(tmp_path: Path, name: str, source: str) -> str:
     target = tmp_path / name
     target.write_text(source)
     return str(target)
+
+
+def _names(source: str) -> list[str]:
+    """Callable names as the vote sees them — from the parse tree, not the text."""
+    import tempfile
+    with tempfile.NamedTemporaryFile("w", suffix=".php", delete=False) as fh:
+        fh.write(source)
+    try:
+        return ParsedFile(fh.name).callable_names()
+    finally:
+        os.unlink(fh.name)
+
+
+def _corpus(entries: list[tuple[str, str]]) -> list[tuple[str, str, list[str]]]:
+    """Build (path, source, names) triples for resolve_for_corpus."""
+    return [(path, source, _names(source)) for path, source in entries]
 
 
 # --- The two standards must be demonstrably different on the same file ---
@@ -152,7 +169,7 @@ def test_naming_vote_ignores_ambiguous_and_magic_names():
         "    public function detectActive() {}\n"    # camel
         "}\n"
     )
-    assert standards.count_naming_styles(source) == (1, 1)
+    assert standards.count_naming_styles(_names(source)) == (1, 1)
 
 
 def test_naming_vote_ties_go_to_wordpress():
@@ -170,9 +187,10 @@ def test_corpus_vote_outweighs_a_single_snake_case_file():
          "<?php\nclass Options {\n public function updateValue() {}\n public function readValue() {}\n"
          " public function flushCache() {}\n public function primeCache() {}\n}\n"),
     ]
-    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.PSR
+    corpus = _corpus(sources)
+    assert standards.resolve_for_corpus(standards.AUTO, corpus) == standards.PSR
     # ...while that one file, judged alone, still reads as WPCS.
-    assert standards.resolve(standards.AUTO, "php", *sources[0]) == standards.WORDPRESS
+    assert standards.resolve(standards.AUTO, "php", *corpus[0]) == standards.WORDPRESS
 
 
 def test_corpus_vote_keeps_wordpress_for_classic_wpcs_code():
@@ -182,17 +200,17 @@ def test_corpus_vote_keeps_wordpress_for_classic_wpcs_code():
         ("wp-content/plugins/x/class-admin-page.php",
          "<?php\nclass Admin_Page {\n public function render_page() {}\n public function register_hooks() {}\n}\n"),
     ]
-    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.WORDPRESS
+    assert standards.resolve_for_corpus(standards.AUTO, _corpus(sources)) == standards.WORDPRESS
 
 
 def test_corpus_vote_never_upgrades_non_wordpress_code():
     sources = [("src/UserRepository.php", "<?php\nclass UserRepository { public function find_by_id() {} }\n")]
-    assert standards.resolve_for_corpus(standards.AUTO, sources) == standards.PSR
+    assert standards.resolve_for_corpus(standards.AUTO, _corpus(sources)) == standards.PSR
 
 
 def test_explicit_standard_bypasses_the_corpus_vote():
     sources = [("src/x.php", "<?php\nclass X { public function doThing() {} }\n")]
-    assert standards.resolve_for_corpus(standards.WORDPRESS, sources) == standards.WORDPRESS
+    assert standards.resolve_for_corpus(standards.WORDPRESS, _corpus(sources)) == standards.WORDPRESS
 
 
 def test_scan_directory_applies_one_standard_to_every_file(tmp_path):
@@ -209,6 +227,108 @@ def test_scan_directory_applies_one_standard_to_every_file(tmp_path):
     report = scan(plugin, Config(standard=standards.AUTO))
     assert len(report.file_reports) == 2
     assert {fr.standard for fr in report.file_reports} == {standards.PSR}
+
+
+# --- Regressions found in adversarial review (2026-07-28) ---
+
+def test_vote_ignores_declarations_in_comments_and_strings(tmp_path):
+    """A `function foo(` inside a comment or heredoc must not vote.
+
+    Reading raw text let non-code steer the standard: a WP plugin embedding
+    inline JS in a heredoc was graded PSR, and a comment could be padded to flip
+    a camelCase file to WPCS.
+    """
+    source = (
+        "<?php\n"
+        "if ( ! defined( 'ABSPATH' ) ) { exit; }\n"
+        "add_action( 'init', 'boot' );\n"
+        "// function old_helper( function legacy_thing( function another_one(\n"
+        "class Slider {\n"
+        "    public function renderMarkup(): string {\n"
+        "        return <<<HTML\n"
+        "<script>function initSlider(){} function bindEvents(){} function tearDown(){}</script>\n"
+        "HTML;\n"
+        "    }\n"
+        "    public function buildConfig(): array { return []; }\n"
+        "}\n"
+    )
+    path = _write_php(tmp_path, "class-slider.php", source)
+    parsed = ParsedFile(path, standard=standards.AUTO)
+    # Only the two real methods are decisive, and both are camelCase.
+    assert parsed.callable_names() == ["renderMarkup", "buildConfig"]
+    assert standards.count_naming_styles(parsed.callable_names()) == (0, 2)
+    assert parsed.standard == standards.PSR
+
+
+def test_heredoc_javascript_does_not_misgrade_a_real_wpcs_plugin(tmp_path):
+    """The legitimate-code half of the same bug: inline JS is routine in WP."""
+    source = (
+        "<?php\n"
+        "/**\n * Plugin Name: Slider\n */\n"
+        "add_action( 'init', 'boot' );\n"
+        "class Slider_Widget {\n"
+        "    public function render_widget(): string {\n"
+        "        return <<<HTML\n"
+        "<script>function initSlider(){} function bindEvents(){} function tearDown(){}</script>\n"
+        "HTML;\n"
+        "    }\n"
+        "    public function register_hooks(): void {}\n"
+        "}\n"
+    )
+    path = _write_php(tmp_path, "class-slider-widget.php", source)
+    assert ParsedFile(path, standard=standards.AUTO).standard == standards.WORDPRESS
+
+
+def test_vendored_code_does_not_outvote_the_codebase(tmp_path):
+    """A Composer vendor/ tree must not decide the host plugin's standard."""
+    plugin = tmp_path / "wp-content" / "plugins" / "demo"
+    (plugin / "vendor" / "acme" / "lib").mkdir(parents=True)
+    _write_php(plugin, "class-log-normalizer.php",
+               "<?php\nclass Log_Normalizer {\n public function normalize_line() {}\n"
+               " public function register_hooks() {}\n}\n")
+    _write_php(plugin / "vendor" / "acme" / "lib", "Client.php",
+               "<?php\nclass Client {\n" + "".join(
+                   f" public function doThing{i}() {{}}\n" for i in range(10)) + "}\n")
+
+    from codesieve.engine import scan
+    report = scan(plugin, Config(standard=standards.AUTO))
+    assert {fr.standard for fr in report.file_reports} == {standards.WORDPRESS}
+
+
+def test_is_vendored_matches_only_whole_segments():
+    assert standards.is_vendored("a/vendor/b/c.php")
+    assert standards.is_vendored("node_modules/x.php")
+    assert not standards.is_vendored("src/vendorish/c.php")
+    assert not standards.is_vendored("src/my_vendor_helper.php")
+
+
+def test_non_php_files_are_never_labelled_wordpress(tmp_path):
+    """Standards describe PHP conventions; a Python sibling must not inherit one."""
+    plugin = tmp_path / "wp-content" / "plugins" / "demo"
+    plugin.mkdir(parents=True)
+    _write_php(plugin, "class-thing.php",
+               "<?php\nclass Thing {\n public function do_work() {}\n}\n")
+    (plugin / "helper.py").write_text("def do_work() -> int:\n    return 1\n")
+
+    from codesieve.engine import scan
+    report = scan(plugin, Config(standard=standards.AUTO))
+    by_lang = {fr.language: fr.standard for fr in report.file_reports}
+    assert by_lang["php"] == standards.WORDPRESS
+    assert by_lang["python"] == standards.PSR
+
+
+def test_explicit_wordpress_does_not_label_non_php(tmp_path):
+    path = str(tmp_path / "mod.py")
+    Path(path).write_text("def run() -> int:\n    return 1\n")
+    assert ParsedFile(path, standard=standards.WORDPRESS).standard == standards.PSR
+
+
+def test_unknown_standard_in_yaml_warns_and_falls_back(tmp_path, capsys):
+    config_file = tmp_path / ".codesieve.yml"
+    config_file.write_text("standard: wpcs\n")
+    config = Config.load(config_file)
+    assert config.standard == standards.DEFAULT
+    assert "unknown standard" in capsys.readouterr().err
 
 
 def test_auto_is_a_noop_for_non_php(tmp_path):

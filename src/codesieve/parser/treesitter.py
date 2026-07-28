@@ -79,7 +79,17 @@ class ParsedFile:
         self.tree: tree_sitter.Tree = parser.parse(self.source)
         self.root: tree_sitter.Node = self.tree.root_node
         self.line_count: int = len(self.source_text.splitlines())
-        self.standard: str = standards.resolve(standard, self.language, filepath, self.source_text)
+        self.standard: str = standards.resolve(
+            standard, self.language, filepath, self.source_text, self.callable_names(),
+        )
+
+    def callable_names(self) -> list[str]:
+        """Names of every named function/method, taken from the parse tree.
+
+        Used by the naming vote, which must never read declarations out of
+        comments or string literals.
+        """
+        return [f.name for f in self.get_functions() if f.name != "<anonymous>"]
 
     def get_functions(self) -> list[FunctionInfo]:
         """Extract all function/method definitions (cached)."""

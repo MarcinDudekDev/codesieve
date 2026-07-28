@@ -118,14 +118,17 @@ def _resolve_corpus_standard(files: list[Path], config: Config) -> str:
     Deciding per file would grade siblings against different standards in a
     codebase with mixed naming; the standard is a property of the codebase.
     """
-    sources: list[tuple[str, str]] = []
+    sources: list[tuple[str, str, list[str]]] = []
     for f in files:
         if detect_language(str(f)) != "php":
             continue
         try:
-            sources.append((str(f), f.read_text(encoding="utf-8", errors="replace")))
-        except OSError:
+            # Parsed, not read: the vote counts declarations from the tree, so a
+            # `function foo(` inside a comment, string or heredoc cannot vote.
+            parsed = ParsedFile(str(f))
+        except (OSError, ValueError):
             continue
+        sources.append((str(f), parsed.source_text, parsed.callable_names()))
     return standards.resolve_for_corpus(config.standard, sources)
 
 
