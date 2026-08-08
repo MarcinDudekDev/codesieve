@@ -72,6 +72,7 @@ class CommentRules(Protocol):
     skip_reason: str
 
     def has_docstring(self, func_node, source: bytes) -> bool: ...
+    def is_declaration_only(self, func_node, source: bytes) -> bool: ...
 
 
 @runtime_checkable

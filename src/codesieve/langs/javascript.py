@@ -227,8 +227,18 @@ class JSDeprecatedAPIRules:
 
 
 class JSCommentRules:
+    """Shared by JavaScript, TypeScript and PHP — all use a leading /** block."""
     supported = True
     skip_reason = ""
+
+    def is_declaration_only(self, func_node: tree_sitter.Node, source: bytes) -> bool:
+        """Check whether a function is a signature with no implementation.
+
+        Covers TypeScript interface/ambient signatures and PHP interface and
+        abstract methods: a bodyless declaration states a contract, and the
+        interface documents it.
+        """
+        return func_node.child_by_field_name("body") is None
 
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         prev = func_node.prev_named_sibling

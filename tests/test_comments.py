@@ -137,3 +137,68 @@ def test_bad_ts_missing_jsdoc():
     result = CommentsSieve().analyze(parsed)
     assert result.score < 10.0, f"Bad TS should be missing JSDoc, got {result.score}"
     assert len(result.findings) > 0
+
+
+# --- Declaration-only signatures are not documentable (warden cycle, 2026-07-28) ---
+
+def _scan_comments(tmp_path, name, source):
+    target = tmp_path / name
+    target.write_text(source)
+    return CommentsSieve().analyze(ParsedFile(str(target)))
+
+
+def test_python_protocol_stubs_are_not_counted(tmp_path):
+    """A Protocol file is all contract, no implementation — it must not score 1.0."""
+    source = (
+        "from typing import Protocol\n\n\n"
+        "class NamingRules(Protocol):\n"
+        '    """Language-specific naming rules."""\n'
+        "    def validate_name(self, name: str) -> bool: ...\n"
+        "    def func_context(self, node) -> str: ...\n"
+        "    def extract_param_name(self, node) -> str: ...\n"
+    )
+    result = _scan_comments(tmp_path, "protocols.py", source)
+    assert result.findings == []
+    assert result.score == 10.0
+
+
+def test_python_pass_only_stub_is_not_counted(tmp_path):
+    source = "class Base:\n    def hook(self) -> None:\n        pass\n"
+    assert _scan_comments(tmp_path, "base.py", source).findings == []
+
+
+def test_real_functions_are_still_required_to_have_docstrings(tmp_path):
+    """The exemption must not swallow implementations — mutation guard."""
+    source = (
+        "def documented() -> int:\n"
+        '    """Return one."""\n'
+        "    return 1\n\n\n"
+        "def undocumented() -> int:\n"
+        "    return 2\n"
+    )
+    result = _scan_comments(tmp_path, "impl.py", source)
+    assert [f.function for f in result.findings] == ["undocumented"]
+    assert result.summary.startswith("50%")
+
+
+def test_stubs_are_excluded_from_the_denominator_not_counted_as_documented(tmp_path):
+    """A stub beside one undocumented function must give 0%, not 50%."""
+    source = (
+        "class Thing:\n"
+        "    def declared(self) -> int: ...\n"
+        "    def implemented(self) -> int:\n"
+        "        return 1\n"
+    )
+    result = _scan_comments(tmp_path, "mix.py", source)
+    assert result.summary.startswith("0%")
+    assert [f.function for f in result.findings] == ["implemented"]
+
+
+def test_php_interface_methods_are_not_counted(tmp_path):
+    source = (
+        "<?php\ninterface Storage {\n"
+        "    public function put(string $key): void;\n"
+        "    public function get(string $key): string;\n"
+        "}\n"
+    )
+    assert _scan_comments(tmp_path, "Storage.php", source).findings == []

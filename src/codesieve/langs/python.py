@@ -264,9 +264,34 @@ class PythonNamingRules:
 _PY_DOCSTRING_TYPES = ("string", "concatenated_string")
 
 
+_PY_STUB_BODY_TYPES = ("pass_statement",)
+
+
 class PythonCommentRules:
     supported = True
     skip_reason = ""
+
+    def is_declaration_only(self, func_node: tree_sitter.Node, source: bytes) -> bool:
+        """Check whether a function is a signature with no implementation.
+
+        `typing.Protocol` members, `@overload` variants and abstract stubs are
+        written `def f(self) -> str: ...` — they declare a contract that the
+        enclosing class documents. Demanding a docstring on each one flagged 19
+        declarations in a single protocol file and scored it 1.0.
+        """
+        body = func_node.child_by_field_name("body")
+        if body is None:
+            return True
+        significant = [c for c in body.children if c.type not in ("comment", "newline")]
+        if not significant:
+            return True
+        return all(
+            child.type in _PY_STUB_BODY_TYPES
+            or (child.type == "expression_statement"
+                and child.child_count > 0
+                and child.children[0].type == "ellipsis")
+            for child in significant
+        )
 
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         body = func_node.child_by_field_name("body")

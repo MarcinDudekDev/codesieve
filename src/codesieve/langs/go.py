@@ -191,6 +191,13 @@ class GoCommentRules:
     supported = True
     skip_reason = ""
 
+    def is_declaration_only(self, func_node: tree_sitter.Node, source: bytes) -> bool:
+        """Check whether a function is a signature with no implementation.
+
+        Go interface method elements carry no body.
+        """
+        return func_node.child_by_field_name("body") is None
+
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         prev = func_node.prev_named_sibling
         return prev is not None and prev.type == "comment"

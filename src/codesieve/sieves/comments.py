@@ -22,9 +22,16 @@ class CommentsSieve(BaseSieve):
             reason = rules.skip_reason if rules else f"Comments not applicable for {parsed.language.title()}"
             return self.skip(reason)
 
-        named = [f for f in parsed.get_functions() if f.name != "<anonymous>"]
+        # Signatures without an implementation (Protocol members, @overload
+        # variants, interface and abstract methods) declare a contract that the
+        # enclosing class or interface documents. Counting them as undocumented
+        # scored a pure-Protocol file 1.0 on 19 one-line declarations.
+        named = [
+            f for f in parsed.get_functions()
+            if f.name != "<anonymous>" and not rules.is_declaration_only(f.node, parsed.source)
+        ]
         if not named:
-            return self.perfect("No named functions found")
+            return self.perfect("No documentable functions found")
 
         findings: list[Finding] = []
         documented = 0
