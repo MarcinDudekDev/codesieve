@@ -44,8 +44,12 @@ class FunctionInfo:
     line_count: int
     param_count: int
     start_line: int
-    code_line_count: int = 0
+    code_line_count: int
     """Lines excluding the function's own docstring.
+
+    Deliberately has no default: KISS scores length exclusively from this, so an
+    omitted value would silently read as a zero-line function and grade perfect
+    on length. Better a TypeError at the construction site.
 
     Length is a proxy for how much a reader must hold in their head, and a
     docstring reduces that rather than adding to it. Python puts its docstring

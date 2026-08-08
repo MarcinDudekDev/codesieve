@@ -264,9 +264,6 @@ class PythonNamingRules:
 _PY_DOCSTRING_TYPES = ("string", "concatenated_string")
 
 
-_PY_STUB_BODY_TYPES = ("pass_statement",)
-
-
 class PythonCommentRules:
     supported = True
     skip_reason = ""
@@ -278,6 +275,12 @@ class PythonCommentRules:
         written `def f(self) -> str: ...` — they declare a contract that the
         enclosing class documents. Demanding a docstring on each one flagged 19
         declarations in a single protocol file and scored it 1.0.
+
+        Only `...` counts. `pass` is Python's general-purpose empty statement,
+        not a stub marker: `def hook(self): pass` is a deliberate no-op
+        override, which is an implementation. Exempting it would let a module of
+        undocumented `pass`-bodied hooks score a perfect 10.0 on documentation
+        it does not have.
         """
         body = func_node.child_by_field_name("body")
         if body is None:
@@ -286,10 +289,9 @@ class PythonCommentRules:
         if not significant:
             return True
         return all(
-            child.type in _PY_STUB_BODY_TYPES
-            or (child.type == "expression_statement"
-                and child.child_count > 0
-                and child.children[0].type == "ellipsis")
+            child.type == "expression_statement"
+            and child.child_count > 0
+            and child.children[0].type == "ellipsis"
             for child in significant
         )
 

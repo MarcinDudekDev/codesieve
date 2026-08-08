@@ -162,9 +162,17 @@ def test_python_protocol_stubs_are_not_counted(tmp_path):
     assert result.score == 10.0
 
 
-def test_python_pass_only_stub_is_not_counted(tmp_path):
+def test_python_pass_body_is_an_implementation_not_a_declaration(tmp_path):
+    """`pass` is a deliberate no-op override, so it still needs documenting.
+
+    Exempting it would let a module of undocumented `pass`-bodied hooks score a
+    perfect 10.0 on documentation it does not have — `...` is a stub marker,
+    `pass` is Python's general-purpose empty statement.
+    """
     source = "class Base:\n    def hook(self) -> None:\n        pass\n"
-    assert _scan_comments(tmp_path, "base.py", source).findings == []
+    result = _scan_comments(tmp_path, "base.py", source)
+    assert [f.function for f in result.findings] == ["hook"]
+    assert result.score < 10.0
 
 
 def test_real_functions_are_still_required_to_have_docstrings(tmp_path):
@@ -195,10 +203,20 @@ def test_stubs_are_excluded_from_the_denominator_not_counted_as_documented(tmp_p
 
 
 def test_php_interface_methods_are_not_counted(tmp_path):
+    """PHP interface methods are bodyless declarations, so they are exempt.
+
+    Asserts the summary, not just an empty findings list: `skip()` also yields
+    no findings, so the weaker check would pass if the PHP pack ever lost its
+    comment rules or flipped supported=False — it could not tell "correctly
+    exempted" from "never analysed".
+    """
     source = (
         "<?php\ninterface Storage {\n"
         "    public function put(string $key): void;\n"
         "    public function get(string $key): string;\n"
         "}\n"
     )
-    assert _scan_comments(tmp_path, "Storage.php", source).findings == []
+    result = _scan_comments(tmp_path, "Storage.php", source)
+    assert not result.skipped
+    assert result.summary == "No documentable functions found"
+    assert result.findings == []

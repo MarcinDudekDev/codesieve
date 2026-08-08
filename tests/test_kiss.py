@@ -53,8 +53,8 @@ def test_docstring_does_not_count_toward_function_length(tmp_path):
     documented = _kiss(tmp_path, "doc.py", f"def compute_total(values: list[int]) -> int:\n{_LONG_DOC}{_BODY}")
     assert documented.score == bare.score
     # def line + 4 body lines; the 14-line docstring between them is not counted.
-    assert "max fn length=5" in documented.summary
-    assert "max fn length=5" in bare.summary
+    assert "max fn code lines=5" in documented.summary
+    assert "max fn code lines=5" in bare.summary
 
 
 def test_python_and_php_are_charged_the_same_for_being_documented(tmp_path):
@@ -83,4 +83,4 @@ def test_only_the_leading_docstring_is_excluded(tmp_path):
     """A string statement mid-body is code, not documentation."""
     body = '    marker = 1\n    """not a docstring"""\n    return marker\n'
     result = _kiss(tmp_path, "mid.py", f"def thing() -> int:\n{body}")
-    assert "max fn length=4" in result.summary
+    assert "max fn code lines=4" in result.summary

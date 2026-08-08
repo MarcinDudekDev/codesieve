@@ -194,7 +194,9 @@ class GoCommentRules:
     def is_declaration_only(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         """Check whether a function is a signature with no implementation.
 
-        Go interface method elements carry no body.
+        Rarely fires: Go interface method elements are `method_elem`/`method_spec`
+        and are absent from GO.function_types, so they never reach a sieve. What
+        remains is the assembly-implemented `func f() int` with no Go body.
         """
         return func_node.child_by_field_name("body") is None
 

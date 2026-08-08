@@ -234,9 +234,11 @@ class JSCommentRules:
     def is_declaration_only(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         """Check whether a function is a signature with no implementation.
 
-        Covers TypeScript interface/ambient signatures and PHP interface and
-        abstract methods: a bodyless declaration states a contract, and the
-        interface documents it.
+        In practice only PHP exercises this: its interface and abstract
+        `method_declaration` nodes carry no body. JavaScript has no bodyless
+        form, and TypeScript's `method_signature` / `function_signature` are
+        absent from TYPESCRIPT.function_types, so TS interface and ambient
+        declarations never reach any sieve to begin with.
         """
         return func_node.child_by_field_name("body") is None
 

@@ -66,7 +66,10 @@ class KissSieve(BaseSieve):
             if cc > 10:
                 findings.append(Finding(message=f"{func.name}() has CC={cc}", line=func.start_line, function=func.name, severity="warning"))
             if func.code_line_count > 35:
-                findings.append(Finding(message=f"{func.name}() is {func.code_line_count} lines long", line=func.start_line, function=func.name, severity="warning"))
+                # Say "code lines": the number excludes the docstring, so a reader
+                # counting lines in the editor would otherwise get a different figure
+                # and have no way to reconcile it.
+                findings.append(Finding(message=f"{func.name}() is {func.code_line_count} code lines long (excluding docstring)", line=func.start_line, function=func.name, severity="warning"))
             if func.param_count > 5:
                 findings.append(Finding(message=f"{func.name}() has {func.param_count} parameters", line=func.start_line, function=func.name, severity="warning"))
 
@@ -76,6 +79,6 @@ class KissSieve(BaseSieve):
 
         avg_raw_cc = sum(raw_ccs) / len(raw_ccs)
         max_len = max(f.code_line_count for f in functions)
-        summary = f"avg CC={avg_raw_cc:.1f}, max fn length={max_len}, {len(functions)} functions"
+        summary = f"avg CC={avg_raw_cc:.1f}, max fn code lines={max_len}, {len(functions)} functions"
 
         return self.result(score, summary, findings)
