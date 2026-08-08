@@ -59,14 +59,14 @@ class KissSieve(BaseSieve):
             cc = cyclomatic_complexity(func.node, parsed.lang_map)
             raw_ccs.append(cc)
             cc_s = _score_from_thresholds(cc, CC_THRESHOLDS)
-            len_s = _score_from_thresholds(func.line_count, LENGTH_THRESHOLDS)
+            len_s = _score_from_thresholds(func.code_line_count, LENGTH_THRESHOLDS)
             param_s = _score_from_thresholds(func.param_count, PARAM_THRESHOLDS)
             func_scores.append(cc_s * CC_WEIGHT + len_s * LENGTH_WEIGHT + param_s * PARAM_WEIGHT)
 
             if cc > 10:
                 findings.append(Finding(message=f"{func.name}() has CC={cc}", line=func.start_line, function=func.name, severity="warning"))
-            if func.line_count > 35:
-                findings.append(Finding(message=f"{func.name}() is {func.line_count} lines long", line=func.start_line, function=func.name, severity="warning"))
+            if func.code_line_count > 35:
+                findings.append(Finding(message=f"{func.name}() is {func.code_line_count} lines long", line=func.start_line, function=func.name, severity="warning"))
             if func.param_count > 5:
                 findings.append(Finding(message=f"{func.name}() has {func.param_count} parameters", line=func.start_line, function=func.name, severity="warning"))
 
@@ -75,7 +75,7 @@ class KissSieve(BaseSieve):
         score = worst * 0.4 + avg * 0.6
 
         avg_raw_cc = sum(raw_ccs) / len(raw_ccs)
-        max_len = max(f.line_count for f in functions)
+        max_len = max(f.code_line_count for f in functions)
         summary = f"avg CC={avg_raw_cc:.1f}, max fn length={max_len}, {len(functions)} functions"
 
         return self.result(score, summary, findings)

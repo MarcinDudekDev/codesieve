@@ -44,6 +44,14 @@ class FunctionInfo:
     line_count: int
     param_count: int
     start_line: int
+    code_line_count: int = 0
+    """Lines excluding the function's own docstring.
+
+    Length is a proxy for how much a reader must hold in their head, and a
+    docstring reduces that rather than adding to it. Python puts its docstring
+    inside the body while PHP/JS/Go put theirs above the declaration, so counting
+    raw lines charged Python — and only Python — for being documented.
+    """
 
 
 @dataclass
@@ -119,12 +127,31 @@ class ParsedFile:
             name_node = ast_utils.get_child_by_field(node, self.lang_map.name_field)
             name = ast_utils.get_node_text(name_node, self.source) if name_node else "<anonymous>"
             params = self._count_params(node)
+            total_lines = ast_utils.node_line_count(node)
             result.append(FunctionInfo(
                 name=name, node=node,
-                line_count=ast_utils.node_line_count(node),
+                line_count=total_lines,
                 param_count=params, start_line=node.start_point[0] + 1,
+                code_line_count=total_lines - self._docstring_line_count(node),
             ))
         return result
+
+    def _docstring_line_count(self, func_node: tree_sitter.Node) -> int:
+        """Return how many lines the function's own docstring occupies, 0 if it has none.
+
+        Only a docstring in the language's in-body position counts. Languages that
+        document above the declaration (PHP, JS, Go) never had those lines inside
+        the node to begin with, so they correctly return 0.
+        """
+        body = func_node.child_by_field_name("body")
+        if body is None or body.child_count == 0:
+            return 0
+        first = body.children[0]
+        if first.type != "expression_statement" or first.child_count == 0:
+            return 0
+        if first.children[0].type not in self.lang_map.string_types:
+            return 0
+        return ast_utils.node_line_count(first)
 
     @cached_property
     def _classes(self) -> list[ClassInfo]:
