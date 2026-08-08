@@ -136,9 +136,13 @@ class CommentRules(Protocol):
         """True if the function is a signature with no implementation.
 
         Such members (Protocol methods, `@overload` variants, interface and abstract
-        stubs) are excluded from the coverage denominator entirely — the contract is
-        documented by the enclosing class, so counting them scores a pure-protocol
-        file 1.0 on nothing but one-line declarations.
+        stubs) leave the coverage denominator — the contract is documented by the
+        enclosing class, so counting them scored a pure-protocol file 1.0 on nothing
+        but one-line declarations.
+
+        Note this asks "undocumented stub?", not "stub?": a declaration that DOES
+        carry a docstring answers False and stays in the denominator, where it
+        counts as documented. Do not reuse this as a general has-no-body test.
         """
         ...
 

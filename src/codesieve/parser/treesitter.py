@@ -41,7 +41,6 @@ class FunctionInfo:
     """Extracted info about a function/method."""
     name: str
     node: tree_sitter.Node
-    line_count: int
     param_count: int
     start_line: int
     code_line_count: int
@@ -134,28 +133,34 @@ class ParsedFile:
             total_lines = ast_utils.node_line_count(node)
             result.append(FunctionInfo(
                 name=name, node=node,
-                line_count=total_lines,
                 param_count=params, start_line=node.start_point[0] + 1,
                 code_line_count=total_lines - self._docstring_line_count(node),
             ))
         return result
 
-    def _docstring_line_count(self, func_node: tree_sitter.Node) -> int:
-        """Return how many lines the function's own docstring occupies, 0 if it has none.
+    def docstring_statement(self, func_node: tree_sitter.Node) -> tree_sitter.Node | None:
+        """Return the statement node holding the function's docstring, or None.
 
-        Only a docstring in the language's in-body position counts. Languages that
-        document above the declaration (PHP, JS, Go) never had those lines inside
-        the node to begin with, so they correctly return 0.
+        The single owner of "where a docstring sits" for this parser — used by
+        get_docstrings, by KISS's length count and by DRY's body hash, which
+        must all agree. Only the language's in-body position counts: PHP, JS and
+        Go document above the declaration, so those lines are never inside the
+        node and this correctly returns None.
         """
         body = func_node.child_by_field_name("body")
         if body is None or body.child_count == 0:
-            return 0
+            return None
         first = body.children[0]
         if first.type != "expression_statement" or first.child_count == 0:
-            return 0
+            return None
         if first.children[0].type not in self.lang_map.string_types:
-            return 0
-        return ast_utils.node_line_count(first)
+            return None
+        return first
+
+    def _docstring_line_count(self, func_node: tree_sitter.Node) -> int:
+        """Return how many lines the function's own docstring occupies, 0 if it has none."""
+        stmt = self.docstring_statement(func_node)
+        return ast_utils.node_line_count(stmt) if stmt is not None else 0
 
     @cached_property
     def _classes(self) -> list[ClassInfo]:
@@ -180,13 +185,9 @@ class ParsedFile:
         """Find docstring nodes (expression_statement containing a string as first child of function/class body)."""
         docstrings = []
         for func in ast_utils.find_nodes(self.root, self.lang_map.function_types + self.lang_map.class_types):
-            body = func.child_by_field_name("body")
-            if body and body.child_count > 0:
-                first = body.children[0]
-                if first.type == "expression_statement" and first.child_count > 0:
-                    expr = first.children[0]
-                    if expr.type in self.lang_map.string_types:
-                        docstrings.append(expr)
+            stmt = self.docstring_statement(func)
+            if stmt is not None:
+                docstrings.append(stmt.children[0])
         return docstrings
 
     def get_all_identifiers(self) -> list[tuple[str, int]]:

@@ -285,14 +285,11 @@ class PythonCommentRules:
         body = func_node.child_by_field_name("body")
         if body is None:
             return True
-        significant = [c for c in body.children if c.type not in ("comment", "newline")]
-        if not significant:
-            return True
         return all(
             child.type == "expression_statement"
             and child.child_count > 0
             and child.children[0].type == "ellipsis"
-            for child in significant
+            for child in body.children if child.type != "comment"
         )
 
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:

@@ -164,3 +164,50 @@ function saveProduct(db, record) {
         assert len(result.findings) >= 1
     finally:
         os.unlink(path)
+
+
+# --- Documentation is not logic (simplify pass, 2026-08-08) ---
+
+def _dry(tmp_path, name, source):
+    target = tmp_path / name
+    target.write_text(source)
+    return DrySieve().analyze(ParsedFile(str(target)))
+
+
+def test_docstrings_do_not_create_duplicate_bodies(tmp_path):
+    """Two trivial functions must not become 'duplicates' by sharing prose.
+
+    The docstring both padded the body past MIN_BODY_LINES and was hashed as
+    part of body identity, so documenting a pair of accessors was enough to
+    report them as duplicated logic.
+    """
+    documented = (
+        'def alpha():\n    """Doc.\n\n    More explanation.\n    """\n    return 1\n\n\n'
+        'def beta():\n    """Doc.\n\n    More explanation.\n    """\n    return 1\n'
+    )
+    bare = "def gamma():\n    return 1\n\n\ndef delta():\n    return 1\n"
+    assert _dry(tmp_path, "doc.py", documented).score == _dry(tmp_path, "bare.py", bare).score == 10.0
+
+
+def test_genuinely_duplicated_bodies_are_still_caught(tmp_path):
+    """The exemption covers documentation only — real duplication must still bite."""
+    source = (
+        "def alpha(items):\n    total = 0\n    for item in items:\n"
+        "        total += item.value\n    return total\n\n\n"
+        "def beta(items):\n    total = 0\n    for item in items:\n"
+        "        total += item.value\n    return total\n"
+    )
+    result = _dry(tmp_path, "dup.py", source)
+    assert result.score < 10.0
+    assert any("duplicates" in f.message for f in result.findings)
+
+
+def test_duplication_is_judged_on_code_not_prose(tmp_path):
+    """Identical logic under different docstrings is still duplication."""
+    source = (
+        'def alpha(items):\n    """Sum the values."""\n    total = 0\n'
+        "    for item in items:\n        total += item.value\n    return total\n\n\n"
+        'def beta(items):\n    """Completely different wording here."""\n    total = 0\n'
+        "    for item in items:\n        total += item.value\n    return total\n"
+    )
+    assert any("duplicates" in f.message for f in _dry(tmp_path, "prose.py", source).findings)

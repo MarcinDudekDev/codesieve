@@ -35,7 +35,7 @@ def _normalize(text: str) -> str:
     return "\n".join(line.strip() for line in text.splitlines() if line.strip())
 
 
-def _body_hash(func: FunctionInfo, source: bytes) -> str | None:
+def _body_hash(func: FunctionInfo, parsed: ParsedFile) -> str | None:
     """Hash a function body for exact-duplicate grouping, or None if it is too short to judge.
 
     Indentation and blank lines are normalized away first, so the same body at a
@@ -45,7 +45,13 @@ def _body_hash(func: FunctionInfo, source: bytes) -> str | None:
     body = func.node.child_by_field_name("body")
     if body is None:
         return None
-    raw = source[body.start_byte:body.end_byte].decode("utf-8", errors="replace")
+    # Start after the docstring: it is documentation, not logic. Counting it both
+    # padded trivial bodies past MIN_BODY_LINES and made two one-line functions
+    # collide because their PROSE matched — documenting a pair of accessors was
+    # enough to report them as duplicated logic.
+    doc = parsed.docstring_statement(func.node)
+    start = doc.end_byte if doc is not None else body.start_byte
+    raw = parsed.source[start:body.end_byte].decode("utf-8", errors="replace")
     norm = _normalize(raw)
     if norm.count("\n") + 1 < MIN_BODY_LINES:
         return None
@@ -86,7 +92,7 @@ class DrySieve(BaseSieve):
         """
         named = [f for f in parsed.get_functions() if f.name != "<anonymous>"]
 
-        body_findings, body_dups, dup_func_nodes = self._duplicate_bodies(named, parsed.source)
+        body_findings, body_dups, dup_func_nodes = self._duplicate_bodies(named, parsed)
         expr_findings, expr_penalty = self._repeated_expressions(parsed, dup_func_nodes)
         stdlib_findings, stdlib_penalty = self._stdlib_reimplementations(parsed)
 
@@ -108,7 +114,7 @@ class DrySieve(BaseSieve):
 
     # ---- Existing behaviour: duplicate function bodies ---------------------------------
     def _duplicate_bodies(
-        self, named: list[FunctionInfo], source: bytes,
+        self, named: list[FunctionInfo], parsed: ParsedFile,
     ) -> tuple[list[Finding], int, set[int]]:
         """Group functions by body hash and report every member after the first as a duplicate.
 
@@ -118,7 +124,7 @@ class DrySieve(BaseSieve):
         """
         groups: dict[str, list[FunctionInfo]] = defaultdict(list)
         for func in named:
-            h = _body_hash(func, source)
+            h = _body_hash(func, parsed)
             if h is not None:
                 groups[h].append(func)
 
