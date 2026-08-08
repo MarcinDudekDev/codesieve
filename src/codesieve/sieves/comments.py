@@ -15,6 +15,11 @@ class CommentsSieve(BaseSieve):
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Measure the share of documentable functions that carry a docstring/JSDoc.
+
+        The score scales linearly with that coverage; only named functions with a
+        real body count, so a file of bare declarations cannot be graded down.
+        """
         pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.comments if pack else None
 

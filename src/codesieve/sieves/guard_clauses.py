@@ -58,6 +58,11 @@ class GuardClausesSieve(BaseSieve):
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Measure the share of functions that wrap their whole body in one `if`.
+
+        The score falls with that ratio — the fix is always the same, inverting the
+        condition into an early return, so the cost is proportional, not per-finding.
+        """
         functions = parsed.get_functions()
         if not functions:
             return self.perfect("No functions found")

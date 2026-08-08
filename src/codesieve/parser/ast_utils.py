@@ -110,6 +110,12 @@ def normalize_subtree(
     Two expressions that differ only in their variable names normalize to the same string.
     """
     def serialize(n: tree_sitter.Node, protected: bool) -> str:
+        """Render one node as its normalized form, recursing into children.
+
+        ``protected`` propagates down a call's callee, so the function *being*
+        called keeps its name while its arguments are still blanked — otherwise
+        `foo(a)` and `bar(a)` would normalize alike and read as a repetition.
+        """
         if blank_identifiers and not protected and n.type in identifier_types:
             return "§ID§"
         if not n.children:

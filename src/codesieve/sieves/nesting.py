@@ -28,6 +28,11 @@ class NestingSieve(BaseSieve):
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Score control-flow nesting depth per function, weighted toward the deepest one.
+
+        Depth 0–1 is free; every further level costs more, and a function nested four
+        deep or more is also reported as a finding.
+        """
         functions = parsed.get_functions()
         if not functions:
             return self.perfect("No functions found")

@@ -42,6 +42,12 @@ class DeprecatedAPISieve(BaseSieve):
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Look up every call against the language's deprecated-API database.
+
+        Each hit subtracts its own penalty — heavier for an API that was removed
+        outright than for one merely discouraged — plus any non-call deprecations
+        (`var`, `with`) the language pack reports separately.
+        """
         pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.deprecated_api if pack else None
 

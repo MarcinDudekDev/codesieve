@@ -44,6 +44,11 @@ class MagicNumbersSieve(BaseSieve):
     default_weight = 0.05
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Count unexplained numeric literals inside function bodies and charge a flat cost each.
+
+        Literals that already carry a name — parameter defaults, constant
+        assignments — and the universally harmless values are not counted.
+        """
         functions = parsed.get_functions()
         if not functions:
             return self.perfect("No functions found")

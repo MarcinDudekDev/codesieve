@@ -36,6 +36,12 @@ def _normalize(text: str) -> str:
 
 
 def _body_hash(func: FunctionInfo, source: bytes) -> str | None:
+    """Hash a function body for exact-duplicate grouping, or None if it is too short to judge.
+
+    Indentation and blank lines are normalized away first, so the same body at a
+    different nesting level still collides. Bodies under ``MIN_BODY_LINES`` return
+    None — a one-liner repeated across accessors is not duplication worth naming.
+    """
     body = func.node.child_by_field_name("body")
     if body is None:
         return None
@@ -63,6 +69,7 @@ class _ExprGroup:
 
     @property
     def first(self) -> tree_sitter.Node:
+        """The earliest-collected occurrence — the one a finding points at and reports."""
         return self.nodes[0]
 
 
@@ -72,6 +79,11 @@ class DrySieve(BaseSieve):
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Measure repetition on three axes: duplicate bodies, repeated expressions, reinvented helpers.
+
+        Each costs its own penalty off a perfect score, heaviest for a wholly
+        duplicated function body and lightest (advisory only) for a stdlib hint.
+        """
         named = [f for f in parsed.get_functions() if f.name != "<anonymous>"]
 
         body_findings, body_dups, dup_func_nodes = self._duplicate_bodies(named, parsed.source)
@@ -98,6 +110,12 @@ class DrySieve(BaseSieve):
     def _duplicate_bodies(
         self, named: list[FunctionInfo], source: bytes,
     ) -> tuple[list[Finding], int, set[int]]:
+        """Group functions by body hash and report every member after the first as a duplicate.
+
+        Also returns the node ids of *all* members, original included, so the
+        expression pass can skip them — a duplicated body would otherwise be charged
+        a second time for every expression it repeats.
+        """
         groups: dict[str, list[FunctionInfo]] = defaultdict(list)
         for func in named:
             h = _body_hash(func, source)
@@ -127,6 +145,13 @@ class DrySieve(BaseSieve):
     def _repeated_expressions(
         self, parsed: ParsedFile, dup_func_nodes: set[int],
     ) -> tuple[list[Finding], float]:
+        """Report expressions repeated ``MIN_OCCURRENCES`` times or more, with their penalty.
+
+        Occurrences are matched on structure, not text, so the same computation
+        spelled with different variable names still groups. Only the largest repeated
+        unit survives, and the cost per group is capped so one hot expression cannot
+        sink the whole file's score.
+        """
         expr_types = parsed.lang_map.dedup_expr_types
         if not expr_types:
             return [], 0.0

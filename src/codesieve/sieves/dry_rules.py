@@ -80,6 +80,7 @@ def _enclosing_scope(node: tree_sitter.Node, types: tuple[str, ...]) -> int:
 
 
 def _has_ancestor(node: tree_sitter.Node, types: tuple[str, ...]) -> bool:
+    """True if any ancestor of the node is one of `types` — used to require surrounding context."""
     current = node.parent
     while current is not None:
         if current.type in types:
@@ -142,4 +143,5 @@ RULES: tuple[Rule, ...] = (
 
 
 def rules_for(language: str) -> list[Rule]:
+    """Rules that apply to this language — empty for any language with no curated rules yet."""
     return [r for r in RULES if r.language == language]

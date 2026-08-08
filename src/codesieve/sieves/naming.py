@@ -73,6 +73,12 @@ class NamingSieve(BaseSieve):
     default_weight = 0.15
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Measure how many names break the language's (and standard's) conventions.
+
+        The score falls with the *ratio* of violating names to names checked —
+        definitions, parameters and local variables alike — so one bad name in a
+        large file costs far less than a file named badly throughout.
+        """
         pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.naming if pack else None
         if rules is None:

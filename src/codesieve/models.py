@@ -57,6 +57,7 @@ class FileReport:
 
     @property
     def filename(self) -> str:
+        """Basename of the scanned path, for report headings that must stay narrow."""
         from pathlib import Path
         return Path(self.path).name
 

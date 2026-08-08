@@ -59,6 +59,11 @@ def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
 
 def _warn_unknown_names(suppressed: dict[int, frozenset[str] | None],
                         known_lower: set[str], path: str) -> None:
+    """Warn on stderr about ignore comments naming a sieve that does not exist.
+
+    A typo would otherwise silently suppress nothing, and the finding it was meant
+    to hide would look like a fresh regression.
+    """
     requested = {n for names in suppressed.values() if names is not _ALL for n in names}
     unknown = sorted(requested - known_lower)
     if not unknown:
@@ -72,6 +77,11 @@ def _warn_unknown_names(suppressed: dict[int, frozenset[str] | None],
 
 def _is_suppressed(line: int | None, sieve_name: str,
                    suppressed: dict[int, frozenset[str] | None]) -> bool:
+    """True if this sieve's finding on this line is silenced by an ignore comment.
+
+    A finding with no line can never be suppressed — there is no comment to anchor
+    the marker to, so a file-level finding stays visible.
+    """
     if line is None or line not in suppressed:
         return False
     names = suppressed[line]

@@ -41,6 +41,11 @@ class TypeHintsSieve(BaseSieve):
     default_weight = 0.08
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Measure annotation coverage over every parameter and every return type.
+
+        The score scales linearly with that coverage, then takes any language-level
+        penalty (a missing `declare(strict_types=1)`, say) off the top.
+        """
         pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.type_hints if pack else None
 

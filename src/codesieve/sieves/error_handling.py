@@ -99,6 +99,12 @@ class ErrorHandlingSieve(BaseSieve):
     default_weight = 0.10
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Inspect every exception handler for bare catches, empty bodies and over-broad types.
+
+        Each offence subtracts its own penalty; a file with no try blocks at all
+        scores perfect, since this sieve judges how errors are handled, not whether
+        they are handled.
+        """
         pack = get_lang_pack(parsed.language, parsed.standard)
         rules = pack.error_handling if pack else None
         if rules is None:
@@ -118,6 +124,11 @@ class ErrorHandlingSieve(BaseSieve):
         return self.result(SCORE_MAX - penalty, summary, findings)
 
     def _build_summary(self, counts: dict[str, int], try_count: int) -> str:
+        """One-line tally of the problems found, or an all-clear naming the try blocks checked.
+
+        The all-clear says how many blocks were inspected — "all good" over zero
+        blocks would read the same as over fifty.
+        """
         parts = []
         if counts["bare"]:
             parts.append(f"{counts['bare']} bare except(s)")

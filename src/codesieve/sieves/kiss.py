@@ -42,6 +42,11 @@ class KissSieve(BaseSieve):
     default_weight = 0.20
 
     def analyze(self, parsed: ParsedFile) -> SieveResult:
+        """Score each function on complexity, length and parameter count, then blend them.
+
+        The file score leans on the worst function as well as the average, so one
+        sprawling function is not averaged away by a crowd of trivial ones.
+        """
         functions = parsed.get_functions()
         if not functions:
             return self.perfect("No functions found")

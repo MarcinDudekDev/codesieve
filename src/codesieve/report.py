@@ -13,10 +13,12 @@ from codesieve.models import FileReport, ScanReport, SieveType
 
 
 def _type_label(sieve_type: SieveType) -> str:
+    """Short column label for a sieve type, abbreviated to keep the table narrow."""
     return {"deterministic": "determ.", "llm": "LLM", "hybrid": "hybrid"}[sieve_type.value]
 
 
 def _score_color(score: float) -> str:
+    """Rich colour name for a score, green through red as it falls."""
     if score >= 8.0:
         return "green"
     if score >= 6.0:

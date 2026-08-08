@@ -59,6 +59,13 @@ class ParsedFile:
     """Wrapper around a tree-sitter parse tree with convenience methods."""
 
     def __init__(self, filepath: str, standard: str = standards.DEFAULT):
+        """Read and parse the file, raising ValueError if its language is unsupported.
+
+        Everything the sieves need is settled here: the language map, the raw bytes
+        (sieves slice these, so the text form is only a convenience), and the
+        resolved coding standard — resolution needs the parsed callables, so it
+        happens last.
+        """
         self.filepath = filepath
         self.language = detect_language(filepath)
         if self.language is None:
@@ -101,6 +108,11 @@ class ParsedFile:
 
     @cached_property
     def _functions(self) -> list[FunctionInfo]:
+        """Walk the tree once for every function/method, caching the result.
+
+        A function with no name node — a lambda or arrow function — is kept, under
+        the name ``<anonymous>``; callers that only grade declarations filter it out.
+        """
         nodes = ast_utils.find_nodes(self.root, self.lang_map.function_types)
         result = []
         for node in nodes:
@@ -116,6 +128,7 @@ class ParsedFile:
 
     @cached_property
     def _classes(self) -> list[ClassInfo]:
+        """Walk the tree once for every class, caching the result with its method count."""
         nodes = ast_utils.find_nodes(self.root, self.lang_map.class_types)
         result = []
         for node in nodes:
