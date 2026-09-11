@@ -8,10 +8,10 @@ sieves:
   - MagicNumbers
   - GuardClauses
   - DeprecatedAPI
-  # - DRY        # Phase 2
+  - Comments
+  - DRY
   # - SRP        # Phase 3 (requires LLM)
   # - Complexity  # Phase 3 (requires LLM)
-  # - Comments   # Phase 2
 
 weights:
   KISS: 0.20
@@ -29,6 +29,11 @@ weights:
 
 # Minimum aggregate score (0 = disabled)
 fail_under: 0
+
+# Coding standard to grade against: psr (default) | wordpress | auto
+# "wordpress" applies WPCS (snake_case functions, Capitalized_Words_With_Underscores
+# classes, no declare(strict_types=1) expectation) instead of PSR-1/PSR-12.
+standard: psr
 
 # Set true to skip LLM-dependent sieves
 deterministic: false
