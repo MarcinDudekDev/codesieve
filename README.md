@@ -2,7 +2,7 @@
 
 **Deterministic code quality grading for AI coding workflows.**
 
-CodeSieve runs 8 principle-based sieves against your Python, PHP, JavaScript, and TypeScript code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
+CodeSieve runs 10 principle-based sieves against your Python, PHP, JavaScript, TypeScript, and Go code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
 
 Built for the AI-assisted coding loop: let your agent write code, then grade it automatically before committing. Works as a CLI tool, CI gate, or quality feedback signal for any AI coding agent.
 
@@ -41,11 +41,14 @@ codesieve scan app.py
 codesieve scan index.php
 codesieve scan app.ts
 
-# Scan a directory (picks up .py, .php, .js, .jsx, .ts, .tsx files)
+# Scan a directory (picks up .py, .php, .js, .jsx, .ts, .tsx, .go files)
 codesieve scan src/
 
 # JSON output for CI pipelines
 codesieve scan src/ --format json
+
+# SARIF output for code scanning tools (e.g. GitHub Advanced Security)
+codesieve scan src/ --format sarif
 
 # Fail CI if quality drops below threshold
 codesieve scan src/ --fail-under 7.0
@@ -65,20 +68,22 @@ codesieve sieves
 
 ```
   CodeSieve Report -- src/myapp/handlers.py (174 lines, Python)
-+-----------------+---------+------------+--------------------------------------+
-| Sieve           |  Score  | Type       | Summary                              |
-+-----------------+---------+------------+--------------------------------------+
-| KISS            |   6.9   | determ.    | avg CC=7.7, max fn length=35         |
-| Nesting         |   7.8   | determ.    | max depth=3, avg depth=2.2           |
-| Naming          |  10.0   | determ.    | 0 violations in 40 names (0%)        |
-| ErrorHandling   |  10.0   | determ.    | No try blocks in 6 functions         |
-| TypeHints       |   9.5   | determ.    | 94% type coverage (11/12 params)     |
-| MagicNumbers    |  10.0   | determ.    | no magic numbers                     |
-| GuardClauses    |  10.0   | determ.    | all functions use good return patterns|
-| DeprecatedAPI   |  10.0   | determ.    | No deprecated API calls found        |
-+-----------------+---------+------------+--------------------------------------+
-| AGGREGATE       |   8.9   |            | Grade: A                             |
-+-----------------+---------+------------+--------------------------------------+
++-----------------+---------+------------+---------------------------------------------------+
+| Sieve           |  Score  | Type       | Summary                                           |
++-----------------+---------+------------+---------------------------------------------------+
+| KISS            |   6.9   | determ.    | avg CC=7.7, max fn length=35                      |
+| Nesting         |   7.8   | determ.    | max depth=3, avg depth=2.2                        |
+| Naming          |  10.0   | determ.    | 0 violations in 40 names (0%)                     |
+| ErrorHandling   |  10.0   | determ.    | No try blocks in 6 functions                      |
+| TypeHints       |   9.5   | determ.    | 94% type coverage (11/12 params)                  |
+| MagicNumbers    |  10.0   | determ.    | no magic numbers                                  |
+| GuardClauses    |  10.0   | determ.    | all functions use good return patterns            |
+| DeprecatedAPI   |  10.0   | determ.    | No deprecated API calls found                     |
+| Comments        |   8.2   | determ.    | 80% docstring coverage (8/10 functions)           |
+| DRY             |  10.0   | determ.    | No duplicate bodies or repeated expressions found |
++-----------------+---------+------------+---------------------------------------------------+
+| AGGREGATE       |   8.9   |            | Grade: A                                          |
++-----------------+---------+------------+---------------------------------------------------+
 ```
 
 ## PHP Support
@@ -143,6 +148,18 @@ codesieve init
 
 ```yaml
 # .codesieve.yml
+sieves:
+  - KISS
+  - Nesting
+  - Naming
+  - ErrorHandling
+  - TypeHints
+  - MagicNumbers
+  - GuardClauses
+  - DeprecatedAPI
+  - Comments
+  - DRY
+
 exclude:
   - "**/.venv/**"
   - "**/migrations/**"
@@ -157,6 +174,8 @@ weights:
   MagicNumbers: 0.05
   GuardClauses: 0.05
   DeprecatedAPI: 0.05
+  DRY: 0.15
+  Comments: 0.10
 
 fail_under: 7.0
 
@@ -218,8 +237,8 @@ CodeSieve uses [tree-sitter](https://tree-sitter.github.io/) for parsing, making
 
 ## Roadmap
 
-- [x] Python support (8 sieves)
-- [x] PHP support (8 sieves, PSR-1/PSR-12 enforcement, deprecated API detection)
+- [x] Python support
+- [x] PHP support (PSR-1/PSR-12 enforcement, deprecated API detection)
 - [x] JavaScript/TypeScript support (camelCase/PascalCase, TS type annotations)
 - [x] Go support
 - [x] Selectable coding standards (`--standard=psr|wordpress|auto`) with WPCS for WordPress PHP
