@@ -1,7 +1,6 @@
 """Tests for the CLI interface."""
 
 import json
-import os
 import tempfile
 from pathlib import Path
 

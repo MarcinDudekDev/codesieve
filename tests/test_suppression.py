@@ -162,7 +162,7 @@ def test_ignore_sieve_drops_line_finding(tmp_path):
     eh = _sieve(report, "ErrorHandling")
     lines = [f.line for f in eh.findings]
     assert 4 not in lines, "line-4 broad catch should be suppressed"
-    assert any(l in (8, 9) for l in lines), "line-8 bare/empty except must still fire"
+    assert any(line in (8, 9) for line in lines), "line-8 bare/empty except must still fire"
 
 
 def test_other_sieves_still_fire(tmp_path):

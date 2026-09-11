@@ -48,7 +48,8 @@ def test_php_bad_class_name():
 
 def test_php_psr1_method_camelcase():
     """PSR-1 §4.3: Method names MUST be camelCase."""
-    import tempfile, os
+    import os
+    import tempfile
     code = '<?php\nclass Foo {\n    public function bad_method_name() { return 1; }\n    public function goodMethodName() { return 2; }\n}\n'
     with tempfile.NamedTemporaryFile(suffix='.php', mode='w', delete=False) as f:
         f.write(code)
