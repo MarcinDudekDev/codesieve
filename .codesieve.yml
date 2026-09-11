@@ -38,7 +38,7 @@ standard: psr
 # Set true to skip LLM-dependent sieves
 deterministic: false
 
-# Output format: terminal, json
+# Output format: terminal, json, sarif
 format: terminal
 
 # File patterns to exclude
