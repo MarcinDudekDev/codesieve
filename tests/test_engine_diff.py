@@ -36,7 +36,9 @@ def git_repo(tmp_path: Path):
 
 def test_collect_diff_files_returns_only_changed(git_repo):
     root, committed, changed = git_repo
-    result = {p.resolve() for p in _collect_diff_files(root, "HEAD")}
+    changed_files = _collect_diff_files(root, "HEAD")
+    assert changed_files is not None
+    result = {p.resolve() for p in changed_files}
     assert changed.resolve() in result
     assert committed.resolve() not in result
 

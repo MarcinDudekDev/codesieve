@@ -72,6 +72,7 @@ def test_collect_diff_files_returns_changed_file(tmp_path):
     src.write_text("x = 2\n")  # modify since HEAD (shows as M under --diff-filter=ACM)
 
     changed = _collect_diff_files(tmp_path, "HEAD")
+    assert changed is not None
     assert src.resolve() in {c.resolve() for c in changed}
 
 
