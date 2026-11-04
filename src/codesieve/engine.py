@@ -43,22 +43,31 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
 _SUPPORTED_GLOBS = ("*.py", "*.php", "*.js", "*.jsx", "*.ts", "*.tsx", "*.go")
 
 
-def _glob_parts(parts: tuple[str, ...], pat: tuple[str, ...]) -> bool:
-    """Match path segments against pattern segments, `**` spanning any number of them."""
-    if not pat:
-        return not parts
-    if pat[0] == "**":
-        return any(_glob_parts(parts[i:], pat[1:]) for i in range(len(parts) + 1))
-    return bool(parts) and fnmatchcase(parts[0], pat[0]) and _glob_parts(parts[1:], pat[1:])
+def _matches_prefix(parts: tuple[str, ...], pat: tuple[str, ...]) -> bool:
+    """True if `pat` consumes some leading run of `parts`, `**` spanning any number of segments.
+
+    Prefix semantics is what makes an excluded directory exclude its contents.
+    Tracks the set of reachable positions, so it is O(len(parts) * len(pat))
+    however many `**` the pattern holds.
+    """
+    positions = {0}
+    for seg in pat:
+        if seg == "**":
+            positions = set(range(min(positions), len(parts) + 1))
+        else:
+            positions = {i + 1 for i in positions if i < len(parts) and fnmatchcase(parts[i], seg)}
+        if not positions:
+            return False
+    return True
 
 
 def _compile_excludes(root: Path, exclude: list[str]) -> list[tuple[str, ...]]:
-    """Turn exclude patterns into segment tuples, gitignore-style.
+    """Turn exclude patterns into root-relative segment tuples, gitignore-style.
 
-    A bare name (`.venv`) matches any segment. A pattern with `/` matches at any
-    depth unless it starts with `/`, which anchors it to the scan root; an
-    absolute path under the root is made root-relative first. `.` segments and
-    runs of `**` are dropped, so `./src/*` and `**/**/x` mean what they say.
+    A leading `/` or `./`, or an absolute path under the root, anchors the
+    pattern to the scan root. Anything else floats: it gets a leading `**`, so a
+    bare name (`.venv`) or `tests/*` matches at any depth. `.` segments and runs
+    of `**` are dropped.
     """
     root_prefixes = {p.as_posix().rstrip("/") + "/" for p in (root.absolute(), root.resolve())}
     compiled = []
@@ -75,25 +84,15 @@ def _compile_excludes(root: Path, exclude: list[str]) -> list[tuple[str, ...]]:
             segments.append(s)
         if not segments:
             continue
-        if len(segments) > 1 and not anchored and segments[0] != "**":
+        if not anchored and segments[0] != "**":
             segments.insert(0, "**")
         compiled.append(tuple(segments))
     return compiled
 
 
 def _is_excluded(rel_parts: tuple[str, ...], patterns: list[tuple[str, ...]]) -> bool:
-    """True if a path (segments relative to the scan root) matches any compiled pattern."""
-    for segments in patterns:
-        if len(segments) == 1:
-            if any(fnmatchcase(part, segments[0]) for part in rel_parts):
-                return True
-            continue
-        if _glob_parts(rel_parts, segments):
-            return True
-        # `dir/**` also matches `dir` itself, so the walk can prune it
-        if segments[-1] == "**" and _glob_parts(rel_parts, segments[:-1]):
-            return True
-    return False
+    """True if a path (segments relative to the scan root) falls under any compiled pattern."""
+    return any(_matches_prefix(rel_parts, segments) for segments in patterns)
 
 
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
