@@ -86,5 +86,5 @@ def test_collect_diff_files_empty_when_no_changes(tmp_path):
 
 
 def test_collect_diff_files_non_git_dir_returns_empty(tmp_path):
-    """Edge: outside a git repo, git rev-parse fails and we return an empty set."""
-    assert _collect_diff_files(tmp_path, "HEAD") == set()
+    """Edge: outside a git repo, git rev-parse fails and we return None, not "nothing changed"."""
+    assert _collect_diff_files(tmp_path, "HEAD") is None

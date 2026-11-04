@@ -48,8 +48,8 @@ def test_collect_diff_files_clean_tree_is_empty(git_repo):
 
 
 def test_collect_diff_files_non_git_dir_returns_empty(tmp_path: Path):
-    # No git repo here -> `git rev-parse` fails -> the except branch returns set().
-    assert _collect_diff_files(tmp_path, "HEAD") == set()
+    # No git repo here -> `git rev-parse` fails -> None, distinct from "nothing changed".
+    assert _collect_diff_files(tmp_path, "HEAD") is None
 
 
 def test_scan_with_diff_ref_limits_to_changed_files(git_repo):
@@ -58,3 +58,33 @@ def test_scan_with_diff_ref_limits_to_changed_files(git_repo):
     scanned = {Path(r.path).resolve() for r in report.file_reports}
     assert changed.resolve() in scanned
     assert committed.resolve() not in scanned
+
+
+def test_scan_with_diff_ref_and_clean_tree_scans_nothing(git_repo):
+    root, _committed, changed = git_repo
+    changed.write_text("y = 1\n")  # no changes vs HEAD
+    assert scan(root, Config(), diff_ref="HEAD").file_reports == []
+
+
+def test_collect_diff_files_bad_ref_is_none_not_empty(git_repo):
+    root, _committed, _changed = git_repo
+    assert _collect_diff_files(root, "no-such-ref") is None
+
+
+def test_scan_with_diff_outside_git_falls_back_and_warns(tmp_path: Path, capsys):
+    (tmp_path / "m.py").write_text("x = 1\n")
+    report = scan(tmp_path, Config(), diff_ref="HEAD")
+    assert [Path(r.path).name for r in report.file_reports] == ["m.py"]
+    assert "--diff" in capsys.readouterr().err
+
+
+def test_cli_diff_with_no_changes_exits_zero(git_repo):
+    from click.testing import CliRunner
+
+    from codesieve.cli import main
+
+    root, _committed, changed = git_repo
+    changed.write_text("y = 1\n")
+    result = CliRunner().invoke(main, ["scan", str(root), "--diff", "HEAD"])
+    assert result.exit_code == 0, result.output
+    assert "No changed files" in result.output

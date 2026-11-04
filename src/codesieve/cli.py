@@ -68,6 +68,9 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float 
     report = scan(path, config, diff_ref=diff_ref)
 
     if not report.file_reports:
+        if diff_ref:
+            click.echo(f"No changed files since {diff_ref}.")
+            return
         click.echo("No supported files found.", err=True)
         sys.exit(2)
 

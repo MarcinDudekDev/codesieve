@@ -148,8 +148,12 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
     )
 
 
-def _collect_diff_files(path: Path, ref: str) -> set[Path]:
-    """Collect files changed since ref using git diff."""
+def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
+    """Collect files changed since ref using git diff; None when git cannot answer.
+
+    An empty set means "nothing changed" and None means "no diff available"
+    (not a repo, bad ref, no git), so callers can tell the two apart.
+    """
     import shutil
     import subprocess
     git = shutil.which("git") or "git"
@@ -169,7 +173,7 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path]:
             return set()
         return {Path(root) / line for line in diff_output.splitlines()}
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return set()
+        return None
 
 
 def _resolve_corpus_standard(files: list[Path], config: Config) -> str:
@@ -199,8 +203,13 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
 
     if diff_ref:
         changed = _collect_diff_files(path, diff_ref)
-        if changed:
-            files = [f for f in files if f.resolve() in {c.resolve() for c in changed}]
+        if changed is None:
+            import sys
+            print(f"codesieve: --diff {diff_ref}: git diff unavailable here; scanning all files",
+                  file=sys.stderr)
+        else:
+            wanted = {c.resolve() for c in changed}
+            files = [f for f in files if f.resolve() in wanted]
 
     if not files:
         return ScanReport()
