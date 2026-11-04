@@ -185,6 +185,17 @@ standard: wordpress
 
 Adjust weights to match what matters most for your project. Sieves with weight `0` are skipped.
 
+### Exclude patterns
+
+`exclude` (and `--exclude a,b,c`) uses gitignore-style matching against paths relative to the scanned directory:
+
+- A bare name such as `.venv`, `tests` or `test_*` matches a file **or directory** of that name at any depth. A matching directory is skipped whole.
+- A pattern with a `/` matches at any depth: `tests/*` excludes `tests/a.py` and `pkg/tests/unit/b.py`, since `tests/unit` is itself excluded.
+- A leading `/` or `./` anchors the pattern to the scanned directory. An absolute path inside the scanned directory works too.
+- `**` spans any number of directories.
+
+In JSON output a skipped sieve (for example DeprecatedAPI, which has no rules for Python) carries `"score": null`. It is left out of the aggregate.
+
 ### Where the config comes from
 
 By default CodeSieve reads `.codesieve.yml` from the **current working directory**, independently of what you are scanning. That means the same target can score differently depending on where you ran the command — a CI job, a pre-commit hook, and a manual run can silently disagree.

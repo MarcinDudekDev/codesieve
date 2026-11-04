@@ -52,24 +52,46 @@ def _glob_parts(parts: tuple[str, ...], pat: tuple[str, ...]) -> bool:
     return bool(parts) and fnmatchcase(parts[0], pat[0]) and _glob_parts(parts[1:], pat[1:])
 
 
-def _is_excluded(rel_parts: tuple[str, ...], exclude: list[str]) -> bool:
-    """True if a path (segments relative to the scan root) matches any exclude pattern.
+def _compile_excludes(root: Path, exclude: list[str]) -> list[tuple[str, ...]]:
+    """Turn exclude patterns into segment tuples, gitignore-style.
 
     A bare name (`.venv`) matches any segment. A pattern with `/` matches at any
-    depth unless it starts with `/`, which anchors it to the scan root.
+    depth unless it starts with `/`, which anchors it to the scan root; an
+    absolute path under the root is made root-relative first. `.` segments and
+    runs of `**` are dropped, so `./src/*` and `**/**/x` mean what they say.
     """
+    root_prefixes = {p.as_posix().rstrip("/") + "/" for p in (root.absolute(), root.resolve())}
+    compiled = []
     for pat in exclude:
-        if "/" not in pat:
-            if any(fnmatchcase(part, pat) for part in rel_parts):
+        for prefix in root_prefixes:
+            if pat.startswith(prefix):
+                pat = "/" + pat[len(prefix):]
+                break
+        anchored = pat.startswith(("/", "./"))
+        segments: list[str] = []
+        for s in pat.split("/"):
+            if s in ("", ".") or (s == "**" and segments[-1:] == ["**"]):
+                continue
+            segments.append(s)
+        if not segments:
+            continue
+        if len(segments) > 1 and not anchored and segments[0] != "**":
+            segments.insert(0, "**")
+        compiled.append(tuple(segments))
+    return compiled
+
+
+def _is_excluded(rel_parts: tuple[str, ...], patterns: list[tuple[str, ...]]) -> bool:
+    """True if a path (segments relative to the scan root) matches any compiled pattern."""
+    for segments in patterns:
+        if len(segments) == 1:
+            if any(fnmatchcase(part, segments[0]) for part in rel_parts):
                 return True
             continue
-        segments = tuple(s for s in pat.split("/") if s)
-        if not pat.startswith(("/", "**")):
-            segments = ("**",) + segments
         if _glob_parts(rel_parts, segments):
             return True
         # `dir/**` also matches `dir` itself, so the walk can prune it
-        if segments[-1:] == ("**",) and _glob_parts(rel_parts, segments[:-1]):
+        if segments[-1] == "**" and _glob_parts(rel_parts, segments[:-1]):
             return True
     return False
 
@@ -80,15 +102,16 @@ def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
         lang = detect_language(str(path))
         return [path] if lang else []
 
+    patterns = _compile_excludes(path, exclude)
     files = []
     for dirpath, dirnames, filenames in os.walk(path):
         base = Path(dirpath)
         rel = base.relative_to(path).parts
-        dirnames[:] = sorted(d for d in dirnames if not _is_excluded(rel + (d,), exclude))
+        dirnames[:] = sorted(d for d in dirnames if not _is_excluded(rel + (d,), patterns))
         for name in filenames:
             if not any(fnmatchcase(name, g) for g in _SUPPORTED_GLOBS):
                 continue
-            if _is_excluded(rel + (name,), exclude):
+            if _is_excluded(rel + (name,), patterns):
                 continue
             if detect_language(str(base / name)):
                 files.append(base / name)
