@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import replace
+from fnmatch import fnmatchcase
 from pathlib import Path
 
 from codesieve import standards
@@ -41,6 +43,37 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
 _SUPPORTED_GLOBS = ("*.py", "*.php", "*.js", "*.jsx", "*.ts", "*.tsx", "*.go")
 
 
+def _glob_parts(parts: tuple[str, ...], pat: tuple[str, ...]) -> bool:
+    """Match path segments against pattern segments, `**` spanning any number of them."""
+    if not pat:
+        return not parts
+    if pat[0] == "**":
+        return any(_glob_parts(parts[i:], pat[1:]) for i in range(len(parts) + 1))
+    return bool(parts) and fnmatchcase(parts[0], pat[0]) and _glob_parts(parts[1:], pat[1:])
+
+
+def _is_excluded(rel_parts: tuple[str, ...], exclude: list[str]) -> bool:
+    """True if a path (segments relative to the scan root) matches any exclude pattern.
+
+    A bare name (`.venv`) matches any segment. A pattern with `/` matches at any
+    depth unless it starts with `/`, which anchors it to the scan root.
+    """
+    for pat in exclude:
+        if "/" not in pat:
+            if any(fnmatchcase(part, pat) for part in rel_parts):
+                return True
+            continue
+        segments = tuple(s for s in pat.split("/") if s)
+        if not pat.startswith(("/", "**")):
+            segments = ("**",) + segments
+        if _glob_parts(rel_parts, segments):
+            return True
+        # `dir/**` also matches `dir` itself, so the walk can prune it
+        if segments[-1:] == ("**",) and _glob_parts(rel_parts, segments[:-1]):
+            return True
+    return False
+
+
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
     """Collect all supported files from a path, respecting exclusions."""
     if path.is_file():
@@ -48,12 +81,17 @@ def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
         return [path] if lang else []
 
     files = []
-    for pattern in _SUPPORTED_GLOBS:
-        for p in sorted(path.rglob(pattern)):
-            if any(p.match(pat) for pat in exclude):
+    for dirpath, dirnames, filenames in os.walk(path):
+        base = Path(dirpath)
+        rel = base.relative_to(path).parts
+        dirnames[:] = sorted(d for d in dirnames if not _is_excluded(rel + (d,), exclude))
+        for name in filenames:
+            if not any(fnmatchcase(name, g) for g in _SUPPORTED_GLOBS):
                 continue
-            if detect_language(str(p)):
-                files.append(p)
+            if _is_excluded(rel + (name,), exclude):
+                continue
+            if detect_language(str(base / name)):
+                files.append(base / name)
     return sorted(files)
 
 

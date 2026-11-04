@@ -115,7 +115,7 @@ def report_to_json(report: ScanReport) -> str:
         for sr in fr.sieve_results:
             sieve_data = {
                 "name": sr.name,
-                "score": sr.score,
+                "score": None if sr.skipped else sr.score,
                 "type": sr.sieve_type.value,
                 "summary": sr.summary,
                 "skipped": sr.skipped,
