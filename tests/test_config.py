@@ -75,3 +75,31 @@ def test_generate_default_config_content():
     assert "fail_under" in content
     assert "exclude" in content
     assert "format: terminal" in content
+
+
+def _load(tmp_path, body):
+    p = tmp_path / ".codesieve.yml"
+    p.write_text(body)
+    return Config.load(p)
+
+
+def test_exclude_null_loads_as_empty_list(tmp_path):
+    assert _load(tmp_path, "exclude:\n").exclude == []
+
+
+def test_exclude_string_loads_as_one_item_list(tmp_path):
+    assert _load(tmp_path, "exclude: tests\n").exclude == ["tests"]
+
+
+def test_exclude_non_string_entries_are_stringified(tmp_path):
+    assert _load(tmp_path, "exclude: [123, build]\n").exclude == ["123", "build"]
+
+
+def test_exclude_normalized_values_scan_without_crash(tmp_path):
+    from codesieve.engine import _collect_files
+
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "t.py").write_text("x = 1\n")
+    (tmp_path / "m.py").write_text("x = 1\n")
+    config = _load(tmp_path, "exclude: tests\n")
+    assert [f.name for f in _collect_files(tmp_path, config.exclude)] == ["m.py"]

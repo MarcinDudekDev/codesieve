@@ -52,6 +52,19 @@ def _validated_standard(value: object, config_path: Path) -> str:
     return standards.DEFAULT
 
 
+def _normalized_exclude(value: object) -> list[str]:
+    """Coerce a YAML ``exclude`` value into a list of pattern strings.
+
+    An empty ``exclude:`` key loads as None and crashed the scan; a bare string
+    was iterated character by character, so ``exclude: tests`` excluded nothing.
+    """
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value if v is not None]
+    return [str(value)]
+
+
 def find_config(target: str | Path) -> Path | None:
     """Search upward from a scan target for the nearest ``.codesieve.yml``.
 
@@ -126,7 +139,7 @@ class Config:
             standard=_validated_standard(data.get("standard", DEFAULTS["standard"]), config_path),
             deterministic=data.get("deterministic", False),
             format=data.get("format", "terminal"),
-            exclude=data.get("exclude", DEFAULTS["exclude"]),
+            exclude=_normalized_exclude(data.get("exclude", DEFAULTS["exclude"])),
         )
 
 
