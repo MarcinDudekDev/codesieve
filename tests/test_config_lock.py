@@ -266,3 +266,143 @@ def test_generated_default_config_is_accepted(repo: Path):
     (repo / ".codesieve.yml").unlink()
     assert CliRunner().invoke(main, ["init"]).exit_code == 0
     assert _scan(str(repo)).exit_code == 0
+
+
+# --- regressions found by independent verification (round 1) ----------------------------------
+# Invariant: the config a --diff run actually loads from inside the repository must be
+# byte-identical to its version at the diff base, or the run is locked. Whether git happens
+# to list the file as changed (ignored files, assume-unchanged, case spelling) is irrelevant.
+
+MODES = [("--diff", "HEAD"), ("--diff", "HEAD", "--new-only")]
+
+
+@pytest.fixture
+def bare_repo(repo: Path) -> Path:
+    """The repo fixture without a committed config: the common opt-in starting point."""
+    _git(repo, "rm", "-q", ".codesieve.yml")
+    _git(repo, "commit", "-q", "-m", "no config")
+    return repo
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_gitignored_config_is_loaded_so_it_is_locked(bare_repo: Path, mode: tuple[str, ...]):
+    (bare_repo / ".gitignore").write_text(".codesieve.yml\n")
+    _git(bare_repo, "add", ".gitignore")
+    _git(bare_repo, "commit", "-q", "-m", "ignore the config")
+    (bare_repo / ".codesieve.yml").write_text("sieves: [KISS]\n")
+    (bare_repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(bare_repo), "--format", "json", *mode)
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == [".codesieve.yml"]
+
+
+def test_config_hidden_through_git_info_exclude_is_locked(bare_repo: Path):
+    (bare_repo / ".git" / "info").mkdir(exist_ok=True)
+    (bare_repo / ".git" / "info" / "exclude").write_text(".codesieve.yml\n")
+    (bare_repo / ".codesieve.yml").write_text("exclude:\n  - '**'\n")
+    (bare_repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(bare_repo), "--format", "json", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == [".codesieve.yml"]
+
+
+def test_gitignored_explicit_config_is_locked(bare_repo: Path):
+    (bare_repo / ".gitignore").write_text("local.yml\n")
+    _git(bare_repo, "add", ".gitignore")
+    _git(bare_repo, "commit", "-q", "-m", "ignore local.yml")
+    (bare_repo / "local.yml").write_text(LOOSER_CONFIG)
+    result = _scan(str(bare_repo), "--format", "json", "--config", "local.yml", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == ["local.yml"]
+
+
+def test_gitignored_config_in_a_subdirectory_is_locked_via_config_from_target(bare_repo: Path):
+    (bare_repo / "pkg").mkdir()
+    (bare_repo / "pkg" / "mod.py").write_text(CLEAN)
+    (bare_repo / "pkg" / ".gitignore").write_text(".codesieve.yml\n")
+    _git(bare_repo, "add", "-A")
+    _git(bare_repo, "commit", "-q", "-m", "pkg")
+    (bare_repo / "pkg" / ".codesieve.yml").write_text("sieves: [KISS]\n")
+    (bare_repo / "pkg" / "mod.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(bare_repo / "pkg"), "--format", "json", "--config-from-target", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == ["pkg/.codesieve.yml"]
+
+
+@pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
+def test_config_edit_hidden_from_git_status_is_locked(repo: Path, flag: str):
+    _git(repo, "update-index", flag, ".codesieve.yml")
+    (repo / ".codesieve.yml").write_text(LOOSER_CONFIG)
+    (repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(repo), "--format", "json", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == [".codesieve.yml"]
+
+
+def _case_insensitive(directory: Path) -> bool:
+    (directory / "CaseProbe").write_text("")
+    try:
+        return (directory / "caseprobe").exists()
+    finally:
+        (directory / "CaseProbe").unlink()
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_case_variant_config_name_is_locked(bare_repo: Path, tmp_path: Path, mode: tuple[str, ...]):
+    """macOS/Windows load `.CodeSieve.yml` when asked for `.codesieve.yml`."""
+    if not _case_insensitive(tmp_path):
+        pytest.skip("needs a case-insensitive filesystem")
+    (bare_repo / ".CodeSieve.yml").write_text("sieves: [KISS]\n")
+    (bare_repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(bare_repo), "--format", "json", *mode)
+    assert result.exit_code == 1, result.output
+    assert [p.lower() for p in _locked_paths(result)] == [".codesieve.yml"]
+
+
+def test_explicit_config_spelled_in_another_case_is_locked(repo: Path, tmp_path: Path):
+    if not _case_insensitive(tmp_path):
+        pytest.skip("needs a case-insensitive filesystem")
+    (repo / "ci.yml").write_text(BASE_CONFIG)
+    _git(repo, "add", "ci.yml")
+    _git(repo, "commit", "-q", "-m", "ci config")
+    (repo / "ci.yml").write_text(LOOSER_CONFIG)
+    result = _scan(str(repo), "--format", "json", "--config", "CI.YML", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert [p.lower() for p in _locked_paths(result)] == ["ci.yml"]
+
+
+@pytest.mark.parametrize("mode", MODES)
+def test_committed_unchanged_config_still_passes_with_these_checks(repo: Path, mode: tuple[str, ...]):
+    """The stricter check must not lock the normal case: loaded config == base version."""
+    (repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(repo), "--format", "json", *mode)
+    assert result.exit_code == 0, result.output
+    assert _locked_paths(result) == []
+
+
+def test_unchanged_config_on_a_branch_passes_against_the_merge_base(repo: Path):
+    _git(repo, "checkout", "-q", "-b", "feature")
+    (repo / "app.py").write_text(CLEAN + HARMLESS)
+    _git(repo, "commit", "-q", "-am", "work")
+    result = _scan(str(repo), "--format", "json", "--diff", "main", "--new-only")
+    assert result.exit_code == 0, result.output
+    assert _locked_paths(result) == []
+
+
+def test_ignored_config_is_allowed_with_the_override(bare_repo: Path):
+    (bare_repo / ".gitignore").write_text(".codesieve.yml\n")
+    _git(bare_repo, "add", ".gitignore")
+    _git(bare_repo, "commit", "-q", "-m", "ignore the config")
+    (bare_repo / ".codesieve.yml").write_text(BASE_CONFIG)
+    (bare_repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(bare_repo), "--format", "json", "--diff", "HEAD", env=ALLOW)
+    assert result.exit_code == 0, result.output
+
+
+def test_duplicate_key_in_config_is_a_config_error(repo: Path):
+    """`fail_under: 9` then `fail_under: 0`: YAML keeps the last one without a word."""
+    (repo / ".codesieve.yml").write_text("fail_under: 9\nfail_under: 0\n")
+    result = _scan(str(repo))
+    assert result.exit_code == 2, result.output
+    assert "fail_under" in result.output
+    assert "Traceback" not in result.output

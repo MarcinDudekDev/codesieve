@@ -18,6 +18,32 @@ class ConfigError(Exception):
     """A .codesieve.yml exists but cannot be parsed or holds wrongly typed values."""
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that turns a duplicate mapping key into a YAML error.
+
+    ``yaml.safe_load`` lets ``fail_under: 9`` followed by ``fail_under: 0``
+    through with the last value winning silently — the same silent gate
+    removal an unknown key was. Checking the raw node keys before
+    ``construct_mapping`` flattens merge keys means an explicit key may still
+    legitimately override a ``<<`` merged one; two literal occurrences of the
+    same key cannot.
+    """
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict:
+        seen: set[str] = set()
+        for key_node, _ in node.value:
+            if not isinstance(key_node, yaml.ScalarNode):
+                continue  # a complex key is rejected later for being unhashable
+            if key_node.tag == "tag:yaml.org,2002:merge":
+                continue  # `<<` merge entries are not literal duplicates
+            if key_node.value in seen:
+                raise yaml.constructor.ConstructorError(
+                    "while constructing a mapping", node.start_mark,
+                    f"found duplicate key {key_node.value!r}", key_node.start_mark)
+            seen.add(key_node.value)
+        return super().construct_mapping(node, deep=deep)
+
+
 DEFAULTS = {
     "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments", "DRY"],
     "weights": {
@@ -212,7 +238,7 @@ class Config:
 
         try:
             with open(config_path) as f:
-                data = yaml.safe_load(f)
+                data = yaml.load(f, Loader=_UniqueKeyLoader)
         except yaml.YAMLError as e:
             raise ConfigError(f"{config_path}: invalid YAML: {e}") from e
         except (UnicodeDecodeError, RecursionError) as e:
