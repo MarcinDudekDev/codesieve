@@ -232,7 +232,7 @@ The whole-file score is still computed and shown, but in this mode it does not d
 | 1 | At least one finding sits on an added line |
 | 2 | The diff scope could not be computed — no git repo, unknown ref, no merge-base — never a silent full scan |
 
-`--new-only` without `--diff` is also exit 2. JSON output gains `new_only`, `base` and `new_finding_count` keys plus a `new_findings` list per file; SARIF emits only the new findings.
+`--new-only` without `--diff` is also exit 2. JSON output gains `new_only`, `base` and `new_finding_count` keys plus a `new_findings` list per file; SARIF emits only the new findings. Renames and copies are diffed against their pre-image, so a pure rename adds no lines — only content edited since the merge-base can carry new findings.
 
 Two known limits, both because "new" is line-based rather than semantic:
 

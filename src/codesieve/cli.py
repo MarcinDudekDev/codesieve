@@ -82,11 +82,16 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
         sys.exit(2)
 
     if not report.file_reports:
-        if diff_ref:
+        if not diff_ref:
+            click.echo("No supported files found.", err=True)
+            sys.exit(2)
+        if not report.new_only:
             click.echo(f"No changed files since {diff_ref}.")
             return
-        click.echo("No supported files found.", err=True)
-        sys.exit(2)
+        # --new-only: an empty scope is still a valid report in every format;
+        # terminal output keeps the plain line before the rendered summary.
+        if config.format not in ("json", "sarif"):
+            click.echo(f"No changed files since {diff_ref}.")
 
     if config.format == "json":
         click.echo(report_to_json(report))

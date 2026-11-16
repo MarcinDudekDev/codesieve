@@ -262,3 +262,69 @@ def test_plain_diff_without_new_only_is_unchanged(repo: Path):
     data = _json(result)
     assert "new_only" not in data and "new_finding_count" not in data
     assert "new_findings" not in data["files"][0]
+
+
+# --- regressions found by independent verification (round 1) ----------------------------------
+
+def test_pure_rename_adds_no_lines(repo: Path):
+    _git(repo, "mv", "legacy.py", "renamed.py")  # byte-identical content, staged rename
+    result = _run(repo, "--diff", "HEAD", "--new-only")
+    assert result.exit_code == 0, result.output
+    assert _json(result)["new_finding_count"] == 0
+
+
+def test_rename_plus_edit_counts_only_the_added_lines(repo: Path):
+    _git(repo, "mv", "legacy.py", "renamed.py")
+    (repo / "renamed.py").write_text(CLEAN_FN + OLD_FN + NEW_FN)
+    result = _run(repo, "--diff", "HEAD", "--new-only")
+    assert result.exit_code == 1, result.output
+    assert _new(_json(result)) == [("renamed.py", NEW_LINE, "MagicNumbers")]
+
+
+def test_committed_rename_on_a_branch_adds_no_lines(repo: Path):
+    _git(repo, "checkout", "-q", "-b", "feature")
+    _git(repo, "mv", "legacy.py", "renamed.py")
+    _git(repo, "commit", "-q", "-m", "rename")
+    result = _run(repo, "--diff", "main", "--new-only")
+    assert result.exit_code == 0, result.output
+
+
+def test_unreadable_untracked_files_do_not_abort_the_scan(repo: Path):
+    """Junk that will never be scanned must not decide the exit code."""
+    junk = repo / "junk.dat"
+    junk.write_text("x")
+    junk.chmod(0o000)
+    (repo / "dangling.dat").symlink_to(repo / "does-not-exist")
+    (repo / "legacy.py").write_text(CLEAN_FN + OLD_FN + NEW_FN)
+    try:
+        result = _run(repo, "--diff", "HEAD", "--new-only")
+    finally:
+        junk.chmod(0o644)
+    assert result.exit_code == 1, result.output
+    assert _new(_json(result)) == [("legacy.py", NEW_LINE, "MagicNumbers")]
+
+
+@pytest.mark.parametrize("target", ["other.py", "."])
+def test_empty_scope_is_still_a_valid_json_report(repo: Path, target: str):
+    """Nothing in scope (unchanged file, or a clean tree) is a clean report, not plain text."""
+    result = _run(repo / target, "--diff", "HEAD", "--new-only")
+    assert result.exit_code == 0, result.output
+    data = _json(result)
+    assert data["new_only"] is True
+    assert data["new_finding_count"] == 0
+    assert data["files"] == []
+    assert data["base"] == _git(repo, "rev-parse", "HEAD")
+
+
+def test_empty_scope_is_still_valid_sarif(repo: Path):
+    result = CliRunner().invoke(
+        main, ["scan", str(repo), "--format", "sarif", "--diff", "HEAD", "--new-only"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(getattr(result, "stdout", result.output))["runs"][0]["results"] == []
+
+
+def test_empty_scope_terminal_output_states_zero_new_findings(repo: Path):
+    result = CliRunner().invoke(main, ["scan", str(repo), "--diff", "HEAD", "--new-only"])
+    assert result.exit_code == 0, result.output
+    assert "No changed files" in result.output
+    assert "New findings: 0" in result.output

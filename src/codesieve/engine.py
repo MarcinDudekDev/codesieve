@@ -211,7 +211,7 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
     path = Path(path)
     files = _collect_files(path, config.exclude)
 
-    added_by_file: dict[Path, set[int]] | None = None
+    added_by_file: dict[Path, set[int] | None] | None = None
     base: str | None = None
     if diff_ref and new_only:
         base, scope = resolve_scope(path, diff_ref)
@@ -238,7 +238,12 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
         try:
             file_report = scan_file(f, config)
             if added_by_file is not None:
-                file_report.added_lines = added_by_file[f.resolve()]
+                added = added_by_file[f.resolve()]
+                # None marks an untracked file: every parsed line was added.
+                file_report.added_lines = (
+                    added if added is not None
+                    else set(range(1, file_report.line_count + 1))
+                )
             reports.append(file_report)
         except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
             from rich.console import Console

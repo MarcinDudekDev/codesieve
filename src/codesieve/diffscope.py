@@ -69,16 +69,32 @@ def _split_nul(out: str) -> list[str]:
     return [name for name in out.split("\0") if name]
 
 
-def _changed_paths(root: Path, base: str, ref: str) -> list[str]:
-    """Tracked files added/copied/modified/renamed vs ``base``, worktree included.
+def _changed_paths(root: Path, base: str, ref: str) -> list[tuple[str, list[str]]]:
+    """Tracked changes vs ``base`` as ``(post-image name, diff pathspecs)`` pairs.
 
-    ``git diff <base>`` compares the working tree (index included) against the
-    base commit; ``-z`` keeps odd filenames intact and renames report their
-    post-image name.
+    ``git diff --name-status -z -M`` compares the working tree (index
+    included) against the base commit; ``-z`` keeps odd filenames intact.
+    Renames and copies appear as ``R<score>``/``C<score>`` followed by the
+    pre- and post-image names — the added-line diff needs both names in its
+    pathspec or rename detection cannot pair them and the post-image looks
+    like a new file with every line added.
     """
-    out = _run(root, ["diff", "--name-only", "-z", "--diff-filter=ACMR", base],
+    out = _run(root, ["diff", "--name-status", "-z", "-M", "--diff-filter=ACMR", base],
                f"--new-only: git diff against merge-base of {ref!r} failed")
-    return _split_nul(out)
+    fields = _split_nul(out)
+    changes: list[tuple[str, list[str]]] = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        i += 1
+        if status[0] in "RC":
+            old, new = fields[i], fields[i + 1]
+            i += 2
+            changes.append((new, [old, new]))
+        else:
+            changes.append((fields[i], [fields[i]]))
+            i += 1
+    return changes
 
 
 def _untracked_paths(root: Path, ref: str) -> list[str]:
@@ -88,14 +104,17 @@ def _untracked_paths(root: Path, ref: str) -> list[str]:
     return _split_nul(out)
 
 
-def _added_lines(root: Path, base: str, name: str, ref: str) -> set[int]:
-    """Line numbers added to ``name`` since ``base``, per ``git diff -U0`` hunks.
+def _added_lines(root: Path, base: str, names: list[str], ref: str) -> set[int]:
+    """Line numbers added to ``names[-1]`` since ``base``, per ``git diff -U0``.
 
     A ``@@ -a,b +c,d @@`` header contributes lines ``c .. c+d-1``; a missing
     count means 1 line, and a count of 0 (pure deletions) adds nothing.
+    ``--no-ext-diff`` and ``--no-textconv`` keep user-configured diff drivers
+    from reshaping the output the hunk parser relies on.
     """
-    out = _run(root, ["diff", "-U0", "--no-color", base, "--", name],
-               f"--new-only: git diff -U0 failed for {name!r} against {ref!r}")
+    out = _run(root, ["diff", "-U0", "-M", "--no-color", "--no-ext-diff", "--no-textconv",
+                      base, "--", *names],
+               f"--new-only: git diff -U0 failed for {names[-1]!r} against {ref!r}")
     added: set[int] = set()
     for line in out.splitlines():
         match = _HUNK_HEADER.match(line)
@@ -107,22 +126,14 @@ def _added_lines(root: Path, base: str, name: str, ref: str) -> set[int]:
     return added
 
 
-def _all_lines(path: Path, ref: str) -> set[int]:
-    """Every line of an untracked file counts as added; counted in the worktree."""
-    try:
-        raw = path.read_bytes()
-    except OSError:
-        raise DiffScopeError(
-            f"--new-only: --diff {ref}: cannot read untracked file {path}") from None
-    line_count = raw.count(b"\n") + (1 if raw and not raw.endswith(b"\n") else 0)
-    return set(range(1, line_count + 1))
-
-
-def resolve_scope(path: Path, ref: str) -> tuple[str, dict[Path, set[int]]]:
+def resolve_scope(path: Path, ref: str) -> tuple[str, dict[Path, set[int] | None]]:
     """Return ``(merge-base sha, {file: added line numbers})`` for ``--new-only``.
 
     ``path`` is the scan target; the scope covers the whole repo it lives in,
     so a subdirectory scan still sees changes relative to the merge-base.
+    A ``None`` line set marks an untracked file, where every line counts as
+    added; untracked files are never read here — the engine expands the
+    marker to lines ``1..line_count`` only for files it actually scans.
     Raises :class:`DiffScopeError` naming ``ref`` on any failure — there is no
     silent fallback in this mode.
     """
@@ -130,9 +141,9 @@ def resolve_scope(path: Path, ref: str) -> tuple[str, dict[Path, set[int]]]:
         raise DiffScopeError(f"--new-only: --diff ref {ref!r} looks like a git option")
     root = _repo_root(path, ref)
     base = _merge_base(root, ref)
-    scope: dict[Path, set[int]] = {}
-    for name in _changed_paths(root, base, ref):
-        scope[root / name] = _added_lines(root, base, name, ref)
+    scope: dict[Path, set[int] | None] = {}
+    for name, spec in _changed_paths(root, base, ref):
+        scope[root / name] = _added_lines(root, base, spec, ref)
     for name in _untracked_paths(root, ref):
-        scope[root / name] = _all_lines(root / name, ref)
+        scope[root / name] = None
     return base, scope
