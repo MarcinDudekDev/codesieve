@@ -70,7 +70,9 @@ def _is_finite_nonnegative(value: object) -> bool:
     and a NaN ``fail_under`` is never exceeded, so the gate silently disables
     itself.
     """
-    return _is_number(value) and math.isfinite(value) and value >= 0
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    return math.isfinite(value) and value >= 0
 
 
 def _validate_types(data: dict, config_path: Path) -> None:
