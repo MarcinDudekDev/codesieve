@@ -28,7 +28,9 @@ from codesieve.parser.treesitter import ParsedFile
 from codesieve.scoring import SCORE_MAX, normalize_score
 
 # Matched only within comment text, so the `#`/`//` prefix is already guaranteed.
-_SUPPRESS_RE = re.compile(r"codesieve:\s*ignore(?:\[([^\]]*)\])?", re.IGNORECASE)
+# Public because the NoSilencing sieve must report exactly what this honours: with two
+# separate patterns, a comment could silence a finding here and stay invisible there.
+SUPPRESS_RE = re.compile(r"codesieve:\s*ignore(?:\[([^\]]*)\])?", re.IGNORECASE)
 
 # Sentinel value in the suppression map meaning "every sieve on this line".
 _ALL = None
@@ -48,7 +50,7 @@ def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
     suppressed: dict[int, frozenset[str] | None] = {}
     for node in parsed.get_comments():
         text = ast_utils.get_node_text(node, parsed.source)
-        match = _SUPPRESS_RE.search(text)
+        match = SUPPRESS_RE.search(text)
         if match is None:
             continue
         lineno = node.start_point[0] + 1

@@ -181,6 +181,84 @@ def test_inline_ignore_still_suppresses_other_sieves(tmp_path: Path):
     assert [f.line for f in by_name[NAME].findings] == [5]  # but the silencing itself is reported
 
 
+# --- regressions found by independent verification ---------------------------------------------
+
+BARE_EXCEPT = (
+    "def run() -> None:\n"
+    '    """Run."""\n'
+    "    try:\n"
+    "        pass\n"
+    "    except:{comment}\n"
+    "        raise\n"
+)
+
+
+@pytest.mark.parametrize("comment", [
+    "  # codesieve: ignored",
+    "  # xcodesieve: ignore",
+    "  # codesieve: ignore_all",
+    "  # codesieve: ignorefoo",
+    "  # CodeSieve:   Ignore",
+    "  # codesieve:ignore[ErrorHandling]",
+    "  # note - codesieve: ignore",
+])
+def test_whatever_suppresses_a_finding_is_itself_reported(tmp_path: Path, comment: str):
+    """The invariant: no comment may silence another sieve and stay invisible here."""
+    plain = tmp_path / "plain.py"
+    plain.write_text(BARE_EXCEPT.format(comment=""))
+    silenced = tmp_path / "silenced.py"
+    silenced.write_text(BARE_EXCEPT.format(comment=comment))
+    config = Config(sieves=["ErrorHandling", NAME])
+    before = {r.name: r for r in scan_file(plain, config).sieve_results}
+    after = {r.name: r for r in scan_file(silenced, config).sieve_results}
+    assert len(after["ErrorHandling"].findings) < len(before["ErrorHandling"].findings), \
+        "fixture guard: this comment must really suppress the ErrorHandling finding"
+    assert [f.line for f in after[NAME].findings] == [5]
+
+
+def test_php_heredoc_lines_that_look_like_comments_are_not_comments(tmp_path: Path):
+    source = (
+        "<?php\n"
+        "$x = <<<EOT\n"
+        "foo\n"
+        "# noqa\n"
+        "// phpcs:ignore\n"
+        "/* eslint-disable */\n"
+        "EOT;\n"
+        "// phpcs:ignore\n"          # 8: the only real comment
+    )
+    assert _lines(_result(tmp_path, "doc.php", source)) == [8]
+
+
+def test_marker_inside_a_block_comment_is_reported_on_its_own_line(tmp_path: Path):
+    source = (
+        "/*\n"
+        " * Notes about this module.\n"
+        " * eslint-disable no-console\n"      # 3
+        " */\n"
+        "console.log(1);\n"
+    )
+    assert _lines(_result(tmp_path, "mod.js", source)) == [3]
+
+
+def test_two_markers_of_the_same_kind_in_one_comment_count_twice(tmp_path: Path):
+    source = "/* eslint-disable no-console */ /* eslint-disable no-alert */\nfoo();\n"
+    one_comment = "/*\n * eslint-disable no-console\n * eslint-disable no-alert\n */\nfoo();\n"
+    assert _lines(_result(tmp_path, "a.js", source)) == [1, 1]
+    assert _lines(_result(tmp_path, "b.js", one_comment)) == [2, 3]
+
+
+@pytest.mark.parametrize("filename, source", [
+    ("a.py", "# ruff: noqa\nimport os\n"),
+    ("b.py", "# flake8: noqa\nimport os\n"),
+    ("c.php", "<?php\n// phpcs:ignoreFile\n$a = 1;\n"),
+    ("d.php", "<?php\n// @phpcs:ignore Some.Rule\n$a = 1;\n"),
+])
+def test_file_level_and_prefixed_forms_are_reported(tmp_path: Path, filename: str, source: str):
+    """They silence at least as much as the line-level forms."""
+    assert len(_result(tmp_path, filename, source).findings) == 1
+
+
 # --- other languages ----------------------------------------------------------------------------
 
 def test_php_markers(tmp_path: Path):
@@ -271,3 +349,23 @@ def test_newly_added_suppression_fails_new_only(repo: Path):
     assert result.exit_code == 1, result.output
     new = [(nf["sieve"], nf["line"]) for f in json.loads(result.stdout)["files"] for nf in f["new_findings"]]
     assert new == [(NAME, 2)]
+
+
+def test_marker_added_inside_an_existing_block_comment_fails_new_only(repo: Path):
+    (repo / "mod.js").write_text("/*\n * Notes.\n */\nfoo();\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "js")
+    (repo / "mod.js").write_text("/*\n * Notes.\n * eslint-disable no-undef\n */\nfoo();\n")
+    result = _new_only(repo)
+    assert result.exit_code == 1, result.output
+    new = [(nf["sieve"], nf["line"]) for f in json.loads(result.stdout)["files"] for nf in f["new_findings"]]
+    assert new == [(NAME, 3)]
+
+
+def test_editing_another_line_of_a_block_comment_does_not_make_its_old_marker_new(repo: Path):
+    (repo / "mod.js").write_text("/*\n * Notes.\n * eslint-disable no-undef\n */\nfoo();\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "js")
+    (repo / "mod.js").write_text("/* edited opening line\n * Notes.\n * eslint-disable no-undef\n */\nfoo();\n")
+    result = _new_only(repo)
+    assert result.exit_code == 0, result.output

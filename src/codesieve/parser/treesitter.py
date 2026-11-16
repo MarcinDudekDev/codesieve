@@ -66,6 +66,19 @@ class ClassInfo:
     start_line: int
 
 
+_STRING_ANCESTOR_MARKS = ("heredoc", "nowdoc", "string")
+
+
+def _inside_string(node: tree_sitter.Node) -> bool:
+    """True if any ancestor of ``node`` is a string-like node (heredoc, nowdoc, string)."""
+    ancestor = node.parent
+    while ancestor is not None:
+        if any(mark in ancestor.type for mark in _STRING_ANCESTOR_MARKS):
+            return True
+        ancestor = ancestor.parent
+    return False
+
+
 class ParsedFile:
     """Wrapper around a tree-sitter parse tree with convenience methods."""
 
@@ -178,8 +191,14 @@ class ParsedFile:
         return result
 
     def get_comments(self) -> list[tree_sitter.Node]:
-        """Find all comment nodes."""
-        return ast_utils.find_nodes(self.root, self.lang_map.comment_types)
+        """Find all real comment nodes.
+
+        The PHP grammar tags a `#` or `//` line inside a heredoc body as a
+        ``comment`` node. That is string content, so nodes nested in a string
+        or heredoc are dropped here for every caller.
+        """
+        nodes = ast_utils.find_nodes(self.root, self.lang_map.comment_types)
+        return [node for node in nodes if not _inside_string(node)]
 
     def get_docstrings(self) -> list[tree_sitter.Node]:
         """Find docstring nodes (expression_statement containing a string as first child of function/class body)."""

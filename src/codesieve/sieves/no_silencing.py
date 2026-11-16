@@ -20,37 +20,48 @@ from codesieve.parser import ast_utils
 from codesieve.parser.treesitter import ParsedFile
 from codesieve.scoring import SCORE_MAX
 from codesieve.sieves.base import BaseSieve
+from codesieve.suppression import SUPPRESS_RE
 
 PENALTY_PER_SUPPRESSION = 1.0
 
 # A marker counts only where the tool itself would honour it: at the start of a
 # comment, or of a `#` / `//` segment inside one. Prose that merely mentions a
-# marker, or says "ignore values above this", is left alone. CodeSieve's own
-# marker is the exception: suppression.py honours it anywhere in a comment, so it
-# is reported anywhere too - whatever silences must be visible. One row per tool.
+# marker, or says "ignore values above this", is left alone. One row per tool;
+# the named group `marker` is the token whose line gets reported.
 _SEGMENT_START = r"(?:^|#|//|/\*+|\*)\s*"
-_ANYWHERE = r"\b"
 
 
-def _marker(pattern: str, start: str = _SEGMENT_START, flags: int = 0) -> re.Pattern[str]:
-    """Compile a marker pattern anchored at ``start``."""
-    return re.compile(start + pattern, flags | re.MULTILINE)
+def _marker(pattern: str, flags: int = 0) -> re.Pattern[str]:
+    """Compile a marker pattern anchored at the start of a comment segment."""
+    return re.compile(_SEGMENT_START + f"(?P<marker>{pattern})", flags | re.MULTILINE)
 
 
+# CodeSieve's own marker is not in this table: it is matched with the very regex
+# suppression.py uses (SUPPRESS_RE), so anything that silences a finding there is
+# reported here, whatever its spelling.
+_OWN_LABEL = "codesieve: ignore"
 _MARKERS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("noqa", _marker(r"noqa\b", flags=re.IGNORECASE)),
+    ("noqa", _marker(r"(?:(?:ruff|flake8):\s*)?noqa\b", re.IGNORECASE)),
     ("type: ignore", _marker(r"type:\s*ignore\b")),
-    ("phpcs:ignore", _marker(r"phpcs:(?:ignore|disable)\b")),
+    ("phpcs:ignore", _marker(r"@?phpcs:(?:ignoreFile|ignore|disable)\b")),
     ("@ts-ignore", _marker(r"@ts-(?:ignore|expect-error|nocheck)\b")),
     ("eslint-disable", _marker(r"eslint-disable(?:-next-line|-line)?\b")),
     ("nolint", _marker(r"nolint\b")),
-    ("codesieve: ignore", _marker(r"codesieve:\s*ignore\b", start=_ANYWHERE, flags=re.IGNORECASE)),
 )
 
 
-def markers_in(comment_text: str) -> list[str]:
-    """Labels of the suppression markers a comment carries, in table order."""
-    return [label for label, pattern in _MARKERS if pattern.search(comment_text)]
+def markers_in(comment_text: str) -> list[tuple[str, int]]:
+    """Every suppression marker in a comment as ``(label, line offset)``, in text order.
+
+    The offset is the number of newlines before the marker token, so a marker
+    on the third line of a block comment is reported on that line, not on the
+    line where the comment opens.
+    """
+    hits: list[tuple[int, str]] = []
+    for label, pattern in _MARKERS:
+        hits.extend((match.start("marker"), label) for match in pattern.finditer(comment_text))
+    hits.extend((match.start(), _OWN_LABEL) for match in SUPPRESS_RE.finditer(comment_text))
+    return [(label, comment_text.count("\n", 0, position)) for position, label in sorted(hits)]
 
 
 class NoSilencingSieve(BaseSieve):
@@ -67,14 +78,14 @@ class NoSilencingSieve(BaseSieve):
         return self.result(score, f"{len(findings)} suppression comment(s) found", findings)
 
     def _findings(self, parsed: ParsedFile) -> list[Finding]:
-        """One finding per marker, anchored on the line where its comment starts."""
+        """One finding per marker occurrence, anchored on the marker's own line."""
         findings: list[Finding] = []
         for node in parsed.get_comments():
             text = ast_utils.get_node_text(node, parsed.source)
-            for label in markers_in(text):
+            for label, line_offset in markers_in(text):
                 findings.append(Finding(
                     message=f"suppression comment: {label}",
-                    line=node.start_point[0] + 1, severity="warning",
+                    line=node.start_point[0] + 1 + line_offset, severity="warning",
                     penalty=PENALTY_PER_SUPPRESSION,
                 ))
         return findings
