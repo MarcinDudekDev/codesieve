@@ -89,6 +89,9 @@ class ScanReport:
     grade: Grade = Grade.F
     new_only: bool = False
     base: str | None = None  # full merge-base sha, set only in --new-only mode
+    # (path, message) for each file that crashed mid-scan; non-empty means the
+    # run is a tool error (CLI exit 2) however the scanned files scored.
+    errors: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def new_finding_count(self) -> int:

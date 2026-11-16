@@ -73,11 +73,21 @@ def test_collect_diff_files_bad_ref_is_none_not_empty(git_repo):
     assert _collect_diff_files(root, "no-such-ref") is None
 
 
-def test_scan_with_diff_outside_git_falls_back_and_warns(tmp_path: Path, capsys):
+def test_scan_with_diff_outside_git_raises_instead_of_scanning_everything(tmp_path: Path):
+    """--diff was asked for and git cannot answer: an error, never a silent full scan."""
+    from codesieve.diffscope import DiffScopeError
+
     (tmp_path / "m.py").write_text("x = 1\n")
-    report = scan(tmp_path, Config(), diff_ref="HEAD")
-    assert [Path(r.path).name for r in report.file_reports] == ["m.py"]
-    assert "--diff" in capsys.readouterr().err
+    with pytest.raises(DiffScopeError, match="--diff"):
+        scan(tmp_path, Config(), diff_ref="HEAD")
+
+
+def test_scan_with_unknown_diff_ref_raises(git_repo):
+    from codesieve.diffscope import DiffScopeError
+
+    root, _committed, _changed = git_repo
+    with pytest.raises(DiffScopeError, match="no-such-ref"):
+        scan(root, Config(), diff_ref="no-such-ref")
 
 
 def test_cli_diff_with_no_changes_exits_zero(git_repo):

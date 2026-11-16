@@ -218,19 +218,23 @@ The flag is opt-in, so existing invocations are unaffected.
 codesieve scan . --diff main
 ```
 
+If git cannot produce the diff — the target is not in a repository, or the ref is unknown — the scan exits 2 rather than silently grading everything.
+
 Add `--new-only` to go further — only findings sitting on lines *added* since the merge-base of REF and HEAD are reported and counted. Staged, unstaged and untracked (non-ignored) files all count, which makes it the natural PR/pre-push gate:
 
 ```bash
 codesieve scan . --diff main --new-only
 ```
 
-The whole-file score is still computed and shown, but in this mode it does not decide the exit code:
+The whole-file score is still computed and shown, but in this mode only findings on added lines decide the exit code.
+
+`codesieve scan` uses three exit codes:
 
 | Exit | Meaning |
 |------|---------|
-| 0 | No new findings (or no changed files) |
-| 1 | At least one finding sits on an added line |
-| 2 | The diff scope could not be computed — no git repo, unknown ref, no merge-base — never a silent full scan |
+| 0 | The scan ran and passed — aggregate score at or above `--fail-under`; under `--new-only`, no new findings (or no changed files) |
+| 1 | The scan ran and the code failed the gate — aggregate below `--fail-under`; under `--new-only`, at least one finding sits on an added line |
+| 2 | The tool could not do what was asked — missing or invalid config, unknown sieve, a diff git cannot produce, or a file that crashed mid-scan. Never a traceback, never reported as a pass |
 
 `--new-only` without `--diff` is also exit 2. JSON output gains `new_only`, `base` and `new_finding_count` keys plus a `new_findings` list per file; SARIF emits only the new findings. Renames and copies are diffed against their pre-image, so a pure rename adds no lines — only content edited since the merge-base can carry new findings.
 

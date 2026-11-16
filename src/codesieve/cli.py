@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 import click
 from rich.console import Console
 
 from codesieve import __version__, standards
-from codesieve.config import Config, generate_default_config
+from codesieve.config import Config, ConfigError, generate_default_config
 from codesieve.diffscope import DiffScopeError
 from codesieve.engine import scan, SIEVE_REGISTRY
 from codesieve.report import render_scan_report, report_to_json, report_to_sarif
@@ -27,7 +28,8 @@ def main():
 @click.option("--deterministic", is_flag=True, default=False, help="Only run deterministic sieves")
 @click.option("--fail-under", type=float, default=None, help="Fail if aggregate score is below this threshold")
 @click.option("--sieves", type=str, default=None, help="Comma-separated list of sieves to run")
-@click.option("--config", "config_path", type=click.Path(), default=None, help="Path to .codesieve.yml")
+@click.option("--config", "config_path", type=click.Path(), default=None,
+              help="Path to .codesieve.yml (exit 2 if it does not exist or is invalid)")
 @click.option("--config-from-target", is_flag=True, default=False,
               help="Find .codesieve.yml by walking up from the scanned path instead of using the "
                    "current directory, stopping at the repo root. Makes a scan score the same from "
@@ -39,7 +41,9 @@ def main():
                    "method-naming vote across the scanned files and only picks wordpress when "
                    "snake_case names are not outnumbered — hybrid codebases (WPCS file and class "
                    "names, camelCase methods) resolve to psr. Set it explicitly to be sure.")
-@click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD", help="Only scan files changed since REF (default: HEAD)")
+@click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD",
+              help="Only scan files changed since REF (default: HEAD); "
+                   "exit 2 when git cannot produce the diff")
 @click.option("--new-only", is_flag=True, default=False,
               help="With --diff REF, report and fail only on findings on lines added since "
                    "the merge-base of REF (working tree and untracked files included); the "
@@ -53,7 +57,15 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
     if new_only and not diff_ref:
         click.echo("--new-only requires --diff REF.", err=True)
         sys.exit(2)
-    config = Config.discover(path, config_path) if config_from_target else Config.load(config_path)
+    if config_path is not None and not Path(config_path).exists():
+        click.echo(f"Config file not found: {config_path}", err=True)
+        sys.exit(2)
+    try:
+        config = (Config.discover(path, config_path) if config_from_target
+                  else Config.load(config_path))
+    except ConfigError as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
 
     # CLI overrides
     if fmt:
@@ -81,7 +93,7 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
         click.echo(str(e), err=True)
         sys.exit(2)
 
-    if not report.file_reports:
+    if not report.file_reports and not report.errors:
         if not diff_ref:
             click.echo("No supported files found.", err=True)
             sys.exit(2)
@@ -100,6 +112,12 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
     else:
         console = Console()
         render_scan_report(report, console)
+
+    # A crashed file is a tool error: report the survivors, then fail the run.
+    for crashed_path, message in report.errors:
+        click.echo(f"Error scanning {crashed_path}: {message}", err=True)
+    if report.errors:
+        sys.exit(2)
 
     # In new-only mode the exit code counts new findings; --fail-under does not apply.
     if report.new_only:

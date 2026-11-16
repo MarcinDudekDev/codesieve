@@ -9,7 +9,7 @@ from pathlib import Path
 
 from codesieve import standards
 from codesieve.config import Config
-from codesieve.diffscope import resolve_scope
+from codesieve.diffscope import DiffScopeError, resolve_scope
 from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
 from codesieve.parser.treesitter import ParsedFile
@@ -205,8 +205,12 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
     normally collected ones intersected with the files changed since the
     merge-base of REF and HEAD, and each report records that file's added
     lines so renderers can tell new findings from old ones. Any scope failure
-    raises DiffScopeError — unlike plain ``--diff`` there is no full-scan
-    fallback in this mode.
+    raises DiffScopeError — for plain ``--diff`` too, there is no full-scan
+    fallback: asking for a diff that git cannot produce is a tool error.
+
+    A file that crashes mid-scan is recorded on ``ScanReport.errors`` and the
+    surviving files are still reported; the CLI turns a non-empty error list
+    into exit 2.
     """
     path = Path(path)
     files = _collect_files(path, config.exclude)
@@ -220,12 +224,11 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
     elif diff_ref:
         changed = _collect_diff_files(path, diff_ref)
         if changed is None:
-            import sys
-            print(f"codesieve: --diff {diff_ref}: git diff unavailable here; scanning all files",
-                  file=sys.stderr)
-        else:
-            wanted = {c.resolve() for c in changed}
-            files = [f for f in files if f.resolve() in wanted]
+            raise DiffScopeError(
+                f"--diff {diff_ref}: git diff is unavailable here "
+                "(not a git repository, unknown ref, or git missing)")
+        wanted = {c.resolve() for c in changed}
+        files = [f for f in files if f.resolve() in wanted]
 
     if not files:
         return ScanReport(new_only=new_only, base=base)
@@ -234,6 +237,7 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
         config = replace(config, standard=_resolve_corpus_standard(files, config))
 
     reports = []
+    errors: list[tuple[str, str]] = []
     for f in files:
         try:
             file_report = scan_file(f, config)
@@ -246,11 +250,12 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
                 )
             reports.append(file_report)
         except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
+            errors.append((str(f), str(e)))
             from rich.console import Console
             Console(stderr=True).print(f"[red]Error scanning {f}: {e}[/red]")
 
     if not reports:
-        return ScanReport(new_only=new_only, base=base)
+        return ScanReport(new_only=new_only, base=base, errors=errors)
 
     overall = round(sum(r.aggregate_score for r in reports) / len(reports), 1)
     return ScanReport(
@@ -259,4 +264,5 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
         grade=score_to_grade(overall),
         new_only=new_only,
         base=base,
+        errors=errors,
     )

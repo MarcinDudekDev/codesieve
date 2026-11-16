@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 class DiffScopeError(Exception):
-    """Raised when the diff scope for ``--new-only`` cannot be computed."""
+    """Raised when the diff scope for ``--diff`` / ``--new-only`` cannot be computed."""
 
 
 _HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")

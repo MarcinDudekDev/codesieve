@@ -13,6 +13,10 @@ from codesieve import standards
 CONFIG_FILENAME = ".codesieve.yml"
 
 
+class ConfigError(Exception):
+    """A .codesieve.yml exists but cannot be parsed or holds wrongly typed values."""
+
+
 DEFAULTS = {
     "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments", "DRY"],
     "weights": {
@@ -50,6 +54,39 @@ def _validated_standard(value: object, config_path: Path) -> str:
     print(f"codesieve: unknown standard {value!r} in {config_path}; "
           f"using {standards.DEFAULT!r}. Valid: {', '.join(standards.CHOICES)}", file=sys.stderr)
     return standards.DEFAULT
+
+
+def _is_number(value: object) -> bool:
+    """True for int/float, never for bool — ``fail_under: yes`` is not a threshold."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _validate_types(data: dict, config_path: Path) -> None:
+    """Raise ConfigError on any wrongly typed value in a parsed config mapping.
+
+    Only keys present in the file are checked — absent keys take defaults.
+    ``standard`` and ``exclude`` stay lenient: an unknown standard warns and
+    falls back, and exclude keeps its coercion in ``_normalized_exclude``.
+    """
+    def bad(key: str, want: str) -> ConfigError:
+        return ConfigError(f"{config_path}: `{key}` must be {want}, got {data[key]!r}")
+
+    if "sieves" in data:
+        sieves = data["sieves"]
+        if not isinstance(sieves, list) or not all(isinstance(s, str) for s in sieves):
+            raise bad("sieves", "a list of strings")
+    if "weights" in data:
+        weights = data["weights"]
+        if (not isinstance(weights, dict)
+                or not all(isinstance(k, str) for k in weights)
+                or not all(_is_number(v) for v in weights.values())):
+            raise bad("weights", "a mapping of sieve name to number")
+    if "fail_under" in data and not _is_number(data["fail_under"]):
+        raise bad("fail_under", "a number")
+    if "deterministic" in data and not isinstance(data["deterministic"], bool):
+        raise bad("deterministic", "a boolean")
+    if "format" in data and data["format"] not in ("terminal", "json", "sarif"):
+        raise bad("format", "one of terminal/json/sarif")
 
 
 def _normalized_exclude(value: object) -> list[str]:
@@ -129,8 +166,20 @@ class Config:
         if not config_path.exists():
             return cls()
 
-        with open(config_path) as f:
-            data = yaml.safe_load(f) or {}
+        try:
+            with open(config_path) as f:
+                data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ConfigError(f"{config_path}: invalid YAML: {e}") from e
+        except OSError as e:
+            raise ConfigError(f"{config_path}: cannot read config: {e}") from e
+
+        if data is None:
+            data = {}
+        if not isinstance(data, dict):
+            raise ConfigError(
+                f"{config_path}: expected a mapping of settings, got {type(data).__name__}")
+        _validate_types(data, config_path)
 
         return cls(
             sieves=data.get("sieves", DEFAULTS["sieves"]),
