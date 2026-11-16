@@ -44,8 +44,9 @@ def main():
                    "snake_case names are not outnumbered — hybrid codebases (WPCS file and class "
                    "names, camelCase methods) resolve to psr. Set it explicitly to be sure.")
 @click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD",
-              help="Only scan files changed since REF (default: HEAD); "
-                   "exit 2 when git cannot produce the diff")
+              help="Only scan files changed since REF (default: HEAD); a changed "
+                   ".codesieve.yml in the diff fails the run (config lock, override with "
+                   "CODESIEVE_ALLOW_CONFIG_CHANGE=1); exit 2 when git cannot produce the diff")
 @click.option("--new-only", is_flag=True, default=False,
               help="With --diff REF, report and fail only on findings on lines added since "
                    "the merge-base of REF (working tree and untracked files included); the "
@@ -110,8 +111,10 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
             sys.exit(2)
         # An empty diff scope: terminal keeps the plain line, but for
         # --format json|sarif stdout must stay machine-readable, so it falls
-        # through to the renderers with the normal empty report.
-        if config.format == "terminal":
+        # through to the renderers with the normal empty report. A tripped
+        # config lock skips the plain line entirely — the lock findings are
+        # printed by the report instead.
+        if config.format == "terminal" and not report.config_lock:
             click.echo(f"No changed files since {diff_ref}.")
             if not report.new_only:
                 return
@@ -129,6 +132,10 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
     # repeating it here would report every crash twice.
     if report.errors:
         sys.exit(2)
+
+    # The config lock is a gate failure like --fail-under and new findings.
+    if report.config_lock:
+        sys.exit(1)
 
     # In new-only mode the exit code counts new findings; --fail-under does not apply.
     if report.new_only:

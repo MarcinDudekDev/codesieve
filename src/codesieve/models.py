@@ -92,6 +92,11 @@ class ScanReport:
     # (path, message) for each file that crashed mid-scan; non-empty means the
     # run is a tool error (CLI exit 2) however the scanned files scored.
     errors: list[tuple[str, str]] = field(default_factory=list)
+    # Repo-relative paths of CodeSieve config files changed in the diff —
+    # the config lock, a gate failure (CLI exit 1). None when no --diff was
+    # requested, so "no lock" is told apart from "a diff with no config
+    # change"; a clean diff carries an empty list.
+    config_lock: list[str] | None = None
 
     @property
     def new_finding_count(self) -> int:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 from codesieve import standards
 from codesieve.config import Config
-from codesieve.diffscope import DiffScopeError, resolve_scope
+from codesieve.diffscope import DiffScopeError, config_lock, resolve_scope
 from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
 from codesieve.parser.treesitter import ParsedFile
@@ -290,8 +290,18 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
         files = [f for f in files
                  if (key := _disk_key(f)) is not None and key in wanted]
 
+    # The config lock: a .codesieve.yml inside the change (or the loaded
+    # --config) fails the gate even when nothing scannable changed. It is
+    # evaluated only after the diff resolution above, so a bad ref still
+    # raises DiffScopeError first, and it runs even when ``files`` is empty.
+    lock: list[str] | None = None
+    if diff_ref:
+        lock = ([] if os.environ.get("CODESIEVE_ALLOW_CONFIG_CHANGE") == "1"
+                else config_lock(path, diff_ref, base, config.source_path))
+
     if not files:
-        return ScanReport(new_only=new_only, base=base, errors=errors)
+        return ScanReport(new_only=new_only, base=base, errors=errors,
+                          config_lock=lock)
 
     if config.standard == standards.AUTO:
         config = replace(config, standard=_resolve_corpus_standard(files, config))
@@ -317,7 +327,8 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
             print(f"Error scanning {f}: {e}", file=sys.stderr)
 
     if not reports:
-        return ScanReport(new_only=new_only, base=base, errors=errors)
+        return ScanReport(new_only=new_only, base=base, errors=errors,
+                          config_lock=lock)
 
     overall = round(sum(r.aggregate_score for r in reports) / len(reports), 1)
     return ScanReport(
@@ -327,4 +338,5 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
         new_only=new_only,
         base=base,
         errors=errors,
+        config_lock=lock,
     )

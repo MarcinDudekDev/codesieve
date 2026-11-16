@@ -15,7 +15,9 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+from codesieve.config import CONFIG_FILENAME
 
 
 class DiffScopeError(Exception):
@@ -98,10 +100,10 @@ def _changed_paths(root: Path, base: str, ref: str) -> list[tuple[str, list[str]
     return changes
 
 
-def _untracked_paths(root: Path, ref: str) -> list[str]:
+def _untracked_paths(root: Path, ref: str, mode: str = "--new-only") -> list[str]:
     """Untracked, non-ignored files in the repo (``git ls-files --others``)."""
     out = _run(root, ["ls-files", "--others", "--exclude-standard", "-z"],
-               f"--new-only: listing untracked files for --diff {ref!r} failed")
+               f"{mode}: listing untracked files for --diff {ref!r} failed")
     return _split_nul(out)
 
 
@@ -148,3 +150,69 @@ def resolve_scope(path: Path, ref: str) -> tuple[str, dict[Path, set[int] | None
     for name in _untracked_paths(root, ref):
         scope[root / name] = None
     return base, scope
+
+
+def _lock_listing(root: Path, base: str, ref: str) -> list[str]:
+    """Repo-relative paths differing from ``base`` in any way, plus untracked files.
+
+    Unlike the scan scope there is no ``--diff-filter``: a deleted or
+    renamed-away ``.codesieve.yml`` loosens the gate exactly like an edit
+    does, so every status counts and a rename or copy contributes both of
+    its names — the old one matters when a config was renamed away, the new
+    one when something was renamed to it.
+    """
+    out = _run(root, ["diff", "--name-status", "-z", "-M",
+                      "--end-of-options", base, "--"],
+               f"config lock: git diff --name-status against the diff base of {ref!r} failed")
+    fields = _split_nul(out)
+    changed: list[str] = []
+    i = 0
+    while i < len(fields):
+        status = fields[i]
+        i += 1
+        if status[0] in "RC":
+            changed.extend((fields[i], fields[i + 1]))
+            i += 2
+        else:
+            changed.append(fields[i])
+            i += 1
+    changed.extend(_untracked_paths(root, ref, mode="config lock"))
+    return changed
+
+
+def locked_config_paths(changed: list[str], config_path: Path | None,
+                        root: Path) -> list[str]:
+    """Which of ``changed`` are CodeSieve configs: the lock's decision.
+
+    ``changed`` holds repo-relative POSIX paths. A path locks the run when
+    its basename is ``.codesieve.yml`` at any depth, or when it is
+    ``config_path`` — the config file this run loaded — inside the
+    repository: a ``--config ci.yml`` is a config even under another name.
+    Returns the locked repo-relative paths, POSIX separators, sorted.
+    """
+    names = set(changed)
+    locked = {rel for rel in names if PurePosixPath(rel).name == CONFIG_FILENAME}
+    if config_path is None:
+        return sorted(locked)
+    try:
+        loaded = config_path.resolve().relative_to(root.resolve()).as_posix()
+    except (OSError, ValueError):
+        return sorted(locked)  # the loaded config lives outside this repository
+    if loaded in names:
+        locked.add(loaded)
+    return sorted(locked)
+
+
+def config_lock(path: Path, ref: str, base: str | None,
+                config_path: Path | None) -> list[str]:
+    """Repo-relative paths of CodeSieve configs changed in this diff (sorted).
+
+    ``base`` is the merge-base sha for ``--new-only``; pass None to diff
+    against ``ref`` itself for a plain ``--diff``. The check covers the
+    whole repository holding ``path``, however narrow the scan target is.
+    Raises :class:`DiffScopeError` on any git failure — a lock that cannot
+    be evaluated is a tool error.
+    """
+    root = _repo_root(path, ref)
+    changed = _lock_listing(root, base if base is not None else ref, ref)
+    return locked_config_paths(changed, config_path, root)

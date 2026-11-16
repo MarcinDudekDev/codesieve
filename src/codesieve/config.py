@@ -104,6 +104,28 @@ def _validate_types(data: dict, config_path: Path) -> None:
         raise bad("format", "one of terminal/json/sarif")
 
 
+def _validate_keys(data: dict, config_path: Path) -> None:
+    """Raise ConfigError on keys outside the config schema.
+
+    An unknown key used to be dropped silently — a ``fail-under`` typo read
+    as "no gate at all", and a ``weights`` typo reweighted nothing while
+    looking like a tweak. Names are case-sensitive: ``Fail_Under`` is an
+    unknown key, not a typo to forgive.
+    """
+    unknown = sorted(str(k) for k in data if k not in DEFAULTS)
+    if unknown:
+        raise ConfigError(
+            f"{config_path}: unknown key(s) {', '.join(unknown)}; "
+            f"valid keys: {', '.join(DEFAULTS)}")
+    weights = data.get("weights")
+    if isinstance(weights, dict):
+        bad_weights = sorted(str(k) for k in weights if k not in DEFAULTS["weights"])
+        if bad_weights:
+            raise ConfigError(
+                f"{config_path}: unknown `weights` name(s) {', '.join(bad_weights)}; "
+                f"valid names: {', '.join(DEFAULTS['weights'])}")
+
+
 def _normalized_exclude(value: object) -> list[str]:
     """Coerce a YAML ``exclude`` value into a list of pattern strings.
 
@@ -145,6 +167,9 @@ class Config:
     deterministic: bool = False
     format: str = "terminal"
     exclude: list[str] = field(default_factory=lambda: list(DEFAULTS["exclude"]))
+    # The file this config was loaded from; None for plain defaults. The
+    # config lock needs it to spot a --config under a non-standard name.
+    source_path: Path | None = None
 
     @classmethod
     def discover(cls, target: str | Path, config_path: str | Path | None = None) -> Config:
@@ -202,6 +227,7 @@ class Config:
         if not isinstance(data, dict):
             raise ConfigError(
                 f"{config_path}: expected a mapping of settings, got {type(data).__name__}")
+        _validate_keys(data, config_path)
         _validate_types(data, config_path)
 
         return cls(
@@ -212,6 +238,7 @@ class Config:
             deterministic=data.get("deterministic", False),
             format=data.get("format", "terminal"),
             exclude=_normalized_exclude(data.get("exclude", DEFAULTS["exclude"])),
+            source_path=config_path,
         )
 
 

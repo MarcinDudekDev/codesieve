@@ -30,6 +30,10 @@ def _score_color(score: float) -> str:
 
 _SEVERITY_COLORS = {"error": "red", "warning": "yellow", "info": "dim"}
 
+CONFIG_LOCK_RULE = "config-lock"
+CONFIG_LOCK_MESSAGE = ("config changed in this diff; "
+                       "set CODESIEVE_ALLOW_CONFIG_CHANGE=1 to allow it")
+
 
 def render_file_report(report: FileReport, console: Console | None = None) -> None:
     """Render a file report as a Rich table with findings."""
@@ -102,6 +106,10 @@ def render_scan_report(report: ScanReport, console: Console | None = None) -> No
         short_base = (report.base or "")[:7]
         console.print(f"[bold]New findings: {report.new_finding_count}[/bold] (base {short_base})")
 
+    for locked in report.config_lock or []:
+        console.print(f"{locked} [{CONFIG_LOCK_RULE}] {CONFIG_LOCK_MESSAGE}",
+                      markup=False, style="red")
+
 
 def report_to_json(report: ScanReport) -> str:
     """Serialize a scan report to JSON.
@@ -118,6 +126,11 @@ def report_to_json(report: ScanReport) -> str:
         data["new_only"] = True
         data["base"] = report.base
         data["new_finding_count"] = report.new_finding_count
+    if report.config_lock is not None:
+        data["config_lock"] = [
+            {"path": locked, "rule": CONFIG_LOCK_RULE, "message": CONFIG_LOCK_MESSAGE}
+            for locked in report.config_lock
+        ]
     data["files"] = []
     for fr in report.file_reports:
         file_data: dict = {
@@ -188,6 +201,20 @@ def report_to_sarif(report: ScanReport) -> str:
                         }
                     }]
                 results_list.append(result_entry)
+
+    if report.config_lock:
+        rules_seen[CONFIG_LOCK_RULE] = {
+            "id": CONFIG_LOCK_RULE,
+            "shortDescription": {"text": "CodeSieve config changed in this diff"},
+            "defaultConfiguration": {"level": "error"},
+        }
+        for locked in report.config_lock:
+            results_list.append({
+                "ruleId": CONFIG_LOCK_RULE,
+                "level": "error",
+                "message": {"text": CONFIG_LOCK_MESSAGE},
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": locked}}}],
+            })
 
     sarif = {
         "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",

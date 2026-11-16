@@ -187,6 +187,8 @@ Adjust weights to match what matters most for your project. Sieves with weight `
 
 Invalid values are a config error (exit 2), never a silent default: `sieves` must be a non-empty list of names, every weight must be a finite number `>= 0`, and `fail_under` must be a finite number `>= 0` (`0` disables the gate). A config file that is not UTF-8, not valid YAML, or not a regular file fails the same way.
 
+Keys are strict too — an unknown key (`fail-under` for `fail_under`, `excludes` for `exclude`, wrong case such as `Fail_Under`) or an unknown sieve name under `weights` fails with exit 2, naming the offending key and the valid ones (`sieves, weights, fail_under, standard, deterministic, format, exclude`). A typo can no longer switch the gate off silently.
+
 ### Exclude patterns
 
 `exclude` (and `--exclude a,b,c`) uses gitignore-style matching against paths relative to the scanned directory:
@@ -246,6 +248,14 @@ Two known limits, both because "new" is line-based rather than semantic:
 
 - A finding anchored on a function's `def` line is not new when only the body grew.
 - Findings that carry no line number are never new.
+
+### Config lock
+
+Lowering `fail_under` or widening `exclude` is the cheapest way to make a quality gate pass — so a diff that edits the gate itself fails it. Whenever `--diff REF` is used (with or without `--new-only`) and a CodeSieve config file is part of the change, the scan reports a `config-lock` finding per changed config and exits 1.
+
+A file counts when its basename is `.codesieve.yml` at any depth, or when it is the config loaded for the run (a `--config ci.yml` under another name) inside the repository. *Changed* means differing from the diff base in any way — modified, added, staged, deleted, renamed (the old name counts when a config was renamed away, the new one when something was renamed to it), type-changed, or untracked and not ignored: deleting the config loosens the gate as much as editing it. The check covers the whole repository even when only a subdirectory or a single file is scanned, and it runs even when the scan scope is empty — a change touching only `.codesieve.yml` exits 1, not 0.
+
+Allow a deliberate change by running with `CODESIEVE_ALLOW_CONFIG_CHANGE=1`; only the exact value `1` overrides, and a tool error still wins with exit 2. JSON reports carry a top-level `config_lock` list whenever `--diff` was used, and SARIF emits one `error` result per locked path.
 
 ## Use with AI Agents
 
