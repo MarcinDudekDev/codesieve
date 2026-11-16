@@ -97,20 +97,31 @@ def _is_excluded(rel_parts: tuple[str, ...], patterns: list[tuple[str, ...]]) ->
     return any(_matches_prefix(rel_parts, segments) for segments in patterns)
 
 
-def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
+def _collect_files(path: Path, exclude: list[str],
+                   errors: list[tuple[str, str]] | None = None) -> list[Path]:
     """Collect all supported files from a path, respecting exclusions.
 
     Only regular files are scan candidates (``is_file()`` follows symlinks
     and is False for FIFOs, sockets and devices) — anything else that merely
     carries a source extension would block or crash the parser.
+
+    When ``errors`` is given, each directory os.walk cannot list is appended
+    to it as ``(dir, message)`` — otherwise an unreadable directory would
+    swallow every file under it with no signal. Excluded directories are
+    pruned before descent, so they never reach the walker and never report.
     """
     if path.is_file():
         lang = detect_language(str(path))
         return [path] if lang else []
 
+    def on_walk_error(exc: OSError) -> None:
+        """Record the directory ``exc.filename`` that could not be listed."""
+        if errors is not None:
+            errors.append((str(exc.filename or path), exc.strerror or str(exc)))
+
     patterns = _compile_excludes(path, exclude)
     files = []
-    for dirpath, dirnames, filenames in os.walk(path):
+    for dirpath, dirnames, filenames in os.walk(path, onerror=on_walk_error):
         base = Path(dirpath)
         rel = base.relative_to(path).parts
         dirnames[:] = sorted(d for d in dirnames if not _is_excluded(rel + (d,), patterns))
@@ -158,11 +169,31 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
     )
 
 
+def _disk_key(path: Path) -> tuple[int, int] | None:
+    """(st_dev, st_ino) identifying the directory entry itself; None when absent.
+
+    Diff scope is matched by file identity, not name spelling: git's index and
+    the directory can disagree on case or unicode normalization for the same
+    file. ``lstat``, not ``stat`` or a last-component ``resolve`` — a symlink
+    must key as the link, not its target: a file swapped for a symlink
+    (status T) is in scope as the link, while the unchanged target is not.
+    """
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return None
+    return (st.st_dev, st.st_ino)
+
+
 def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
     """Collect files changed since ref using git diff; None when git cannot answer.
 
     An empty set means "nothing changed" and None means "no diff available"
-    (not a repo, bad ref, no git), so callers can tell the two apart.
+    (not a repo, bad ref, no git), so callers can tell the two apart. The
+    ref is first required to name a commit: an existing file or directory
+    that is not a revision would otherwise be read by ``git diff`` as a
+    pathspec and silently narrow the diff to that path. The trailing ``--``
+    then pins the boundary so the ref can never be taken as a path.
 
     ``-z`` output is NUL-separated and unquoted — without it git C-quotes
     non-ASCII names (``"weird\\303\\277.py"``) and the changed file silently
@@ -181,9 +212,16 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
             text=True, errors="surrogateescape",
             stderr=subprocess.DEVNULL,
         ).strip()
+        subprocess.check_output(  # noqa: S603
+            [git, "rev-parse", "--verify", "--quiet", "--end-of-options",
+             f"{ref}^{{commit}}"],
+            cwd=root,
+            text=True, errors="surrogateescape",
+            stderr=subprocess.DEVNULL,
+        )
         diff_output = subprocess.check_output(  # noqa: S603
-            [git, "diff", "--name-only", "-z", "--diff-filter=ACMR",
-             "--end-of-options", ref],
+            [git, "diff", "--name-only", "-z", "--diff-filter=ACMRT",
+             "--end-of-options", ref, "--"],
             cwd=root,
             text=True, errors="surrogateescape",
             stderr=subprocess.DEVNULL,
@@ -229,36 +267,42 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
     into exit 2.
     """
     path = Path(path)
-    files = _collect_files(path, config.exclude)
+    errors: list[tuple[str, str]] = []
+    files = _collect_files(path, config.exclude, errors)
+    for target, message in errors:
+        print(f"Error scanning {target}: {message}", file=sys.stderr)
 
-    added_by_file: dict[Path, set[int] | None] | None = None
+    added_by_file: dict[tuple[int, int], set[int] | None] | None = None
     base: str | None = None
     if diff_ref and new_only:
         base, scope = resolve_scope(path, diff_ref)
-        added_by_file = {f.resolve(): lines for f, lines in scope.items()}
-        files = [f for f in files if f.resolve() in added_by_file]
+        added_by_file = {key: lines for name, lines in scope.items()
+                         if (key := _disk_key(name)) is not None}
+        files = [f for f in files
+                 if (key := _disk_key(f)) is not None and key in added_by_file]
     elif diff_ref:
         changed = _collect_diff_files(path, diff_ref)
         if changed is None:
             raise DiffScopeError(
                 f"--diff {diff_ref}: git diff is unavailable here "
                 "(not a git repository, unknown ref, or git missing)")
-        wanted = {c.resolve() for c in changed}
-        files = [f for f in files if f.resolve() in wanted]
+        wanted = {key for name in changed if (key := _disk_key(name)) is not None}
+        files = [f for f in files
+                 if (key := _disk_key(f)) is not None and key in wanted]
 
     if not files:
-        return ScanReport(new_only=new_only, base=base)
+        return ScanReport(new_only=new_only, base=base, errors=errors)
 
     if config.standard == standards.AUTO:
         config = replace(config, standard=_resolve_corpus_standard(files, config))
 
     reports = []
-    errors: list[tuple[str, str]] = []
     for f in files:
         try:
             file_report = scan_file(f, config)
             if added_by_file is not None:
-                added = added_by_file[f.resolve()]
+                key = _disk_key(f)
+                added = added_by_file.get(key) if key is not None else None
                 # None marks an untracked file: every parsed line was added.
                 file_report.added_lines = (
                     added if added is not None

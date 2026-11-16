@@ -395,3 +395,79 @@ def test_empty_diff_ref_is_a_tool_error_not_a_full_scan(repo: Path, extra: tuple
     result = _scan(str(repo), "--diff=", "--format", "json", *extra)
     assert result.exit_code == 2, result.output
     assert "aggregate_score" not in result.output
+
+
+# --- regressions found by independent verification (round 3) ----------------------------------
+
+def _commit_all(repo: Path, message: str = "second") -> None:
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", message)
+
+
+def _scoped_names(repo: Path, *mode: str) -> list[str]:
+    result = _scan(str(repo), "--format", "json", *mode)
+    assert result.exit_code in (0, 1), result.output
+    return sorted(Path(f["path"]).name for f in json.loads(result.stdout)["files"])
+
+
+@pytest.mark.parametrize("mode", [("--diff", "HEAD"), ("--diff", "HEAD", "--new-only")])
+def test_file_replaced_by_a_symlink_is_still_in_the_diff_scope(repo: Path, mode: tuple[str, ...]):
+    """git reports a file<->symlink swap as T (typechange); it is a change like any other."""
+    (repo / "keep.py").write_text(CLEAN)
+    (repo / "swap.py").write_text(CLEAN)
+    _commit_all(repo)
+    (repo / "swap.py").unlink()
+    (repo / "swap.py").symlink_to("keep.py")
+    assert _scoped_names(repo, *mode) == ["swap.py"]
+
+
+@pytest.mark.parametrize("ref", ["clean.py", "pkg"])
+def test_diff_ref_that_is_a_path_and_not_a_revision_exits_2(repo: Path, ref: str):
+    """git would read it as a pathspec and quietly diff only that path."""
+    (repo / "pkg").mkdir()
+    (repo / "pkg" / "mod.py").write_text(CLEAN)
+    _commit_all(repo)
+    (repo / "clean.py").write_text(CLEAN + "\n\nOTHER = 4\n")
+    result = _scan(str(repo), "--diff", ref, "--format", "json")
+    _assert_tool_error(result, ref)
+    assert "aggregate_score" not in result.output
+
+
+def _case_insensitive(directory: Path) -> bool:
+    (directory / "CaseProbe").write_text("")
+    try:
+        return (directory / "caseprobe").exists()
+    finally:
+        (directory / "CaseProbe").unlink()
+
+
+@pytest.mark.parametrize("mode", [("--diff", "HEAD"), ("--diff", "HEAD", "--new-only")])
+def test_case_only_rename_on_disk_keeps_the_changed_file_in_scope(
+        repo: Path, tmp_path: Path, mode: tuple[str, ...]):
+    """`mv Foo.py foo.py` without git: the index says Foo.py, the directory says foo.py."""
+    if not _case_insensitive(tmp_path):
+        pytest.skip("needs a case-insensitive filesystem")
+    (repo / "Foo.py").write_text(CLEAN)
+    _commit_all(repo)
+    (repo / "Foo.py").rename(repo / "foo.py")
+    (repo / "foo.py").write_text(CLEAN + "\n\nOTHER = 4\n")
+    assert [n.lower() for n in _scoped_names(repo, *mode)] == ["foo.py"]
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root reads everything")
+@pytest.mark.parametrize("mode", [(), ("--diff", "HEAD")])
+def test_unreadable_directory_is_a_tool_error_not_a_silent_skip(repo: Path, mode: tuple[str, ...]):
+    sub = repo / "sub"
+    sub.mkdir()
+    (sub / "inner.py").write_text(CLEAN)
+    _commit_all(repo)
+    (sub / "inner.py").write_text(CLEAN + "\n\nOTHER = 4\n")
+    sub.chmod(0o000)
+    try:
+        result = _scan(str(repo), "--format", "json", *mode)
+    finally:
+        sub.chmod(0o755)
+    assert result.exit_code == 2, result.output
+    assert "sub" in result.stderr
+    assert "Traceback" not in result.output
+    assert "clean.py" in result.stdout or mode  # a plain scan still reports what it could read

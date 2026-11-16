@@ -77,9 +77,10 @@ def _changed_paths(root: Path, base: str, ref: str) -> list[tuple[str, list[str]
     Renames and copies appear as ``R<score>``/``C<score>`` followed by the
     pre- and post-image names — the added-line diff needs both names in its
     pathspec or rename detection cannot pair them and the post-image looks
-    like a new file with every line added.
+    like a new file with every line added. ``T`` (a file swapped for a
+    symlink or back) is a change like any other and must stay in scope.
     """
-    out = _run(root, ["diff", "--name-status", "-z", "-M", "--diff-filter=ACMR", base],
+    out = _run(root, ["diff", "--name-status", "-z", "-M", "--diff-filter=ACMRT", base],
                f"--new-only: git diff against merge-base of {ref!r} failed")
     fields = _split_nul(out)
     changes: list[tuple[str, list[str]]] = []
