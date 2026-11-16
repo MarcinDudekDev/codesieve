@@ -9,6 +9,7 @@ from pathlib import Path
 
 from codesieve import standards
 from codesieve.config import Config
+from codesieve.diffscope import resolve_scope
 from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
 from codesieve.parser.treesitter import ParsedFile
@@ -196,12 +197,27 @@ def _resolve_corpus_standard(files: list[Path], config: Config) -> str:
     return standards.resolve_for_corpus(config.standard, sources)
 
 
-def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanReport:
-    """Scan a file or directory."""
+def scan(path: str | Path, config: Config, diff_ref: str | None = None,
+         new_only: bool = False) -> ScanReport:
+    """Scan a file or directory.
+
+    With ``new_only`` (requires ``diff_ref``), the scanned files are the
+    normally collected ones intersected with the files changed since the
+    merge-base of REF and HEAD, and each report records that file's added
+    lines so renderers can tell new findings from old ones. Any scope failure
+    raises DiffScopeError — unlike plain ``--diff`` there is no full-scan
+    fallback in this mode.
+    """
     path = Path(path)
     files = _collect_files(path, config.exclude)
 
-    if diff_ref:
+    added_by_file: dict[Path, set[int]] | None = None
+    base: str | None = None
+    if diff_ref and new_only:
+        base, scope = resolve_scope(path, diff_ref)
+        added_by_file = {f.resolve(): lines for f, lines in scope.items()}
+        files = [f for f in files if f.resolve() in added_by_file]
+    elif diff_ref:
         changed = _collect_diff_files(path, diff_ref)
         if changed is None:
             import sys
@@ -212,7 +228,7 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
             files = [f for f in files if f.resolve() in wanted]
 
     if not files:
-        return ScanReport()
+        return ScanReport(new_only=new_only, base=base)
 
     if config.standard == standards.AUTO:
         config = replace(config, standard=_resolve_corpus_standard(files, config))
@@ -220,17 +236,22 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None) -> ScanR
     reports = []
     for f in files:
         try:
-            reports.append(scan_file(f, config))
+            file_report = scan_file(f, config)
+            if added_by_file is not None:
+                file_report.added_lines = added_by_file[f.resolve()]
+            reports.append(file_report)
         except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
             from rich.console import Console
             Console(stderr=True).print(f"[red]Error scanning {f}: {e}[/red]")
 
     if not reports:
-        return ScanReport()
+        return ScanReport(new_only=new_only, base=base)
 
     overall = round(sum(r.aggregate_score for r in reports) / len(reports), 1)
     return ScanReport(
         file_reports=reports,
         aggregate_score=overall,
         grade=score_to_grade(overall),
+        new_only=new_only,
+        base=base,
     )

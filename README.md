@@ -210,6 +210,35 @@ It walks up from the target looking for `.codesieve.yml`, stops at the first hit
 
 The flag is opt-in, so existing invocations are unaffected.
 
+## Scanning only what changed
+
+`--diff REF` scopes the scan to files changed since REF, so a whole repo does not have to be re-graded on every commit:
+
+```bash
+codesieve scan . --diff main
+```
+
+Add `--new-only` to go further — only findings sitting on lines *added* since the merge-base of REF and HEAD are reported and counted. Staged, unstaged and untracked (non-ignored) files all count, which makes it the natural PR/pre-push gate:
+
+```bash
+codesieve scan . --diff main --new-only
+```
+
+The whole-file score is still computed and shown, but in this mode it does not decide the exit code:
+
+| Exit | Meaning |
+|------|---------|
+| 0 | No new findings (or no changed files) |
+| 1 | At least one finding sits on an added line |
+| 2 | The diff scope could not be computed — no git repo, unknown ref, no merge-base — never a silent full scan |
+
+`--new-only` without `--diff` is also exit 2. JSON output gains `new_only`, `base` and `new_finding_count` keys plus a `new_findings` list per file; SARIF emits only the new findings.
+
+Two known limits, both because "new" is line-based rather than semantic:
+
+- A finding anchored on a function's `def` line is not new when only the body grew.
+- Findings that carry no line number are never new.
+
 ## Use with AI Agents
 
 CodeSieve is designed as a quality gate in AI coding loops:

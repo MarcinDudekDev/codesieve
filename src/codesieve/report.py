@@ -62,17 +62,21 @@ def render_file_report(report: FileReport, console: Console | None = None) -> No
 
     console.print(table)
 
-    # Findings section
-    all_findings = []
-    for result in report.sieve_results:
-        if result.skipped:
-            continue
-        for finding in result.findings:
-            all_findings.append((result.name, finding))
+    # Findings section — in new-only mode only findings on added lines list.
+    if report.added_lines is not None:
+        all_findings = report.new_findings()
+    else:
+        all_findings = []
+        for result in report.sieve_results:
+            if result.skipped:
+                continue
+            for finding in result.findings:
+                all_findings.append((result.name, finding))
 
     if all_findings:
         all_findings.sort(key=lambda x: x[1].line or 0)
-        console.print(f"\n  [bold]Findings ({len(all_findings)}):[/bold]")
+        heading = "New findings" if report.added_lines is not None else "Findings"
+        console.print(f"\n  [bold]{heading} ({len(all_findings)}):[/bold]")
         for sieve_name, finding in all_findings:
             color = _SEVERITY_COLORS.get(finding.severity, "dim")
             line_str = f"L{finding.line}" if finding.line else "L?"
@@ -94,16 +98,29 @@ def render_scan_report(report: ScanReport, console: Console | None = None) -> No
             f"(Grade: [bold]{report.grade.value}[/bold]) across {len(report.file_reports)} files"
         )
 
+    if report.new_only:
+        short_base = (report.base or "")[:7]
+        console.print(f"[bold]New findings: {report.new_finding_count}[/bold] (base {short_base})")
+
 
 def report_to_json(report: ScanReport) -> str:
-    """Serialize a scan report to JSON."""
-    data = {
+    """Serialize a scan report to JSON.
+
+    In new-only mode the report gains ``new_only``, ``base`` and
+    ``new_finding_count`` at the top level, and a ``new_findings`` list per
+    file — while the full ``sieves[].findings`` lists stay unchanged.
+    """
+    data: dict = {
         "aggregate_score": report.aggregate_score,
         "grade": report.grade.value,
-        "files": [],
     }
+    if report.new_only:
+        data["new_only"] = True
+        data["base"] = report.base
+        data["new_finding_count"] = report.new_finding_count
+    data["files"] = []
     for fr in report.file_reports:
-        file_data = {
+        file_data: dict = {
             "path": fr.path,
             "language": fr.language,
             "standard": fr.standard,
@@ -112,6 +129,12 @@ def report_to_json(report: ScanReport) -> str:
             "grade": fr.grade.value,
             "sieves": [],
         }
+        if report.new_only:
+            file_data["new_findings"] = [
+                {"sieve": name, "message": f.message, "line": f.line,
+                 "function": f.function, "severity": f.severity}
+                for name, f in fr.new_findings()
+            ]
         for sr in fr.sieve_results:
             sieve_data = {
                 "name": sr.name,
@@ -138,6 +161,7 @@ def report_to_sarif(report: ScanReport) -> str:
     results_list: list[dict] = []
 
     for fr in report.file_reports:
+        new_pairs = fr.new_findings() if report.new_only else None
         for sr in fr.sieve_results:
             if sr.name not in rules_seen:
                 rules_seen[sr.name] = {
@@ -145,7 +169,11 @@ def report_to_sarif(report: ScanReport) -> str:
                     "shortDescription": {"text": sr.name},
                     "defaultConfiguration": {"level": "warning"},
                 }
-            for finding in sr.findings:
+            if new_pairs is None:
+                findings = sr.findings
+            else:
+                findings = [f for name, f in new_pairs if name == sr.name]
+            for finding in findings:
                 severity_map = {"error": "error", "warning": "warning", "info": "note"}
                 result_entry: dict = {
                     "ruleId": sr.name,

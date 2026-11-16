@@ -9,6 +9,7 @@ from rich.console import Console
 
 from codesieve import __version__, standards
 from codesieve.config import Config, generate_default_config
+from codesieve.diffscope import DiffScopeError
 from codesieve.engine import scan, SIEVE_REGISTRY
 from codesieve.report import render_scan_report, report_to_json, report_to_sarif
 
@@ -39,10 +40,19 @@ def main():
                    "snake_case names are not outnumbered — hybrid codebases (WPCS file and class "
                    "names, camelCase methods) resolve to psr. Set it explicitly to be sure.")
 @click.option("--diff", "diff_ref", type=str, default=None, is_flag=False, flag_value="HEAD", help="Only scan files changed since REF (default: HEAD)")
-def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float | None,
-             sieves: str | None, config_path: str | None, config_from_target: bool,
-             exclude_patterns: str | None, standard: str | None, diff_ref: str | None):
+@click.option("--new-only", is_flag=True, default=False,
+              help="With --diff REF, report and fail only on findings on lines added since "
+                   "the merge-base of REF (working tree and untracked files included); the "
+                   "whole-file score is still shown but --fail-under does not decide the "
+                   "exit code.")
+def scan_cmd(path: str, fmt: str | None, deterministic: bool,
+             fail_under: float | None, sieves: str | None, config_path: str | None,
+             config_from_target: bool, exclude_patterns: str | None, standard: str | None,
+             diff_ref: str | None, new_only: bool):
     """Scan a file or directory for code quality."""
+    if new_only and not diff_ref:
+        click.echo("--new-only requires --diff REF.", err=True)
+        sys.exit(2)
     config = Config.discover(path, config_path) if config_from_target else Config.load(config_path)
 
     # CLI overrides
@@ -65,7 +75,11 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float 
             click.echo(f"Unknown sieve: {name}. Available: {', '.join(SIEVE_REGISTRY.keys())}", err=True)
             sys.exit(2)
 
-    report = scan(path, config, diff_ref=diff_ref)
+    try:
+        report = scan(path, config, diff_ref=diff_ref, new_only=new_only)
+    except DiffScopeError as e:
+        click.echo(str(e), err=True)
+        sys.exit(2)
 
     if not report.file_reports:
         if diff_ref:
@@ -81,6 +95,10 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool, fail_under: float 
     else:
         console = Console()
         render_scan_report(report, console)
+
+    # In new-only mode the exit code counts new findings; --fail-under does not apply.
+    if report.new_only:
+        sys.exit(1 if report.new_finding_count else 0)
 
     # Exit code based on fail_under
     if config.fail_under > 0 and report.aggregate_score < config.fail_under:
