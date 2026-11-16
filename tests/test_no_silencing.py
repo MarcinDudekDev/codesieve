@@ -139,8 +139,9 @@ def test_each_suppression_costs_score_and_findings_carry_their_penalty(tmp_path:
     one = _result(tmp_path, "one.py", "import os  # noqa\n")
     three = _result(tmp_path, "three.py", "import os  # noqa\nimport sys  # noqa\nimport re  # noqa\n")
     assert SCORE_MAX > one.score > three.score
-    assert all(f.penalty is not None and f.penalty > 0 for f in three.findings)
-    assert three.score == pytest.approx(SCORE_MAX - sum(f.penalty for f in three.findings))
+    penalties = [f.penalty for f in three.findings if f.penalty is not None]
+    assert len(penalties) == len(three.findings) and all(p > 0 for p in penalties)
+    assert three.score == pytest.approx(SCORE_MAX - sum(penalties))
 
 
 def test_score_never_drops_below_the_scale_minimum(tmp_path: Path):
