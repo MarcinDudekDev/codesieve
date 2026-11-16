@@ -230,6 +230,28 @@ def test_php_heredoc_lines_that_look_like_comments_are_not_comments(tmp_path: Pa
     assert _lines(_result(tmp_path, "doc.php", source)) == [8]
 
 
+@pytest.mark.parametrize("filename, source, line", [
+    ("styled.js", "const Box = styled.div`\n  color: ${(p) => {\n    // eslint-disable-next-line no-undef\n    return p.c;\n  }};\n`;\n", 3),
+    ("tpl.ts", "const s = `a ${\n  // @ts-ignore\n  broken()\n} b`;\n", 2),
+    ("fmt.py", 'value = f"""{\n    compute()  # type: ignore\n}"""\n', 2),
+    ("doc.php", "<?php\n$x = <<<EOT\ntext {$o->m(\n// phpcs:ignore\n1)}\nEOT;\n", 4),
+])
+def test_real_comments_inside_string_interpolations_are_still_seen(
+        tmp_path: Path, filename: str, source: str, line: int):
+    """Only heredoc TEXT is dropped; code inside ${ }, { } or {$ } keeps its comments."""
+    assert _lines(_result(tmp_path, filename, source)) == [line]
+
+
+def test_comment_filter_does_not_slow_large_files_down(tmp_path: Path):
+    import time
+
+    source = "".join(f"# plain comment {i}\n" for i in range(40_000))
+    started = time.perf_counter()
+    result = _result(tmp_path, "big.py", source)
+    assert result.findings == []
+    assert time.perf_counter() - started < 5.0
+
+
 def test_marker_inside_a_block_comment_is_reported_on_its_own_line(tmp_path: Path):
     source = (
         "/*\n"
