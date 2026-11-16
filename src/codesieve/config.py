@@ -45,7 +45,7 @@ class _UniqueKeyLoader(yaml.SafeLoader):
 
 
 DEFAULTS = {
-    "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments", "DRY"],
+    "sieves": ["KISS", "Nesting", "Naming", "ErrorHandling", "TypeHints", "MagicNumbers", "GuardClauses", "DeprecatedAPI", "Comments", "DRY", "NoSilencing"],
     "weights": {
         "KISS": 0.20,
         "Nesting": 0.15,
@@ -59,6 +59,7 @@ DEFAULTS = {
         "SRP": 0.15,
         "Complexity": 0.10,
         "Comments": 0.10,
+        "NoSilencing": 0.05,
     },
     "fail_under": 0.0,
     "standard": standards.DEFAULT,
@@ -282,6 +283,7 @@ sieves:
   - DeprecatedAPI
   - Comments
   - DRY
+  - NoSilencing
   # - SRP        # Phase 3 (requires LLM)
   # - Complexity  # Phase 3 (requires LLM)
 
@@ -298,6 +300,7 @@ weights:
   SRP: 0.15
   Complexity: 0.10
   Comments: 0.10
+  NoSilencing: 0.05
 
 # Minimum aggregate score (0 = disabled)
 fail_under: 0

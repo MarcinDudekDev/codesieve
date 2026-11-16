@@ -33,6 +33,11 @@ _SUPPRESS_RE = re.compile(r"codesieve:\s*ignore(?:\[([^\]]*)\])?", re.IGNORECASE
 # Sentinel value in the suppression map meaning "every sieve on this line".
 _ALL = None
 
+# Sieves whose findings an ignore comment can never drop. NoSilencing reports the
+# ignore comments themselves, so its finding always sits on a line that carries one:
+# if it were suppressible, every suppression would hide its own report.
+UNSUPPRESSIBLE = frozenset({"NoSilencing"})
+
 
 def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
     """Map 1-based line number -> lowercased sieve names, or ``None`` for all sieves.
@@ -121,11 +126,12 @@ def apply_suppressions(results: list[SieveResult], parsed: ParsedFile) -> list[S
     if not suppressed:
         return results
 
-    _warn_unknown_names(suppressed, {r.name.lower() for r in results}, parsed.filepath)
+    known = {r.name.lower() for r in results} | {name.lower() for name in UNSUPPRESSIBLE}
+    _warn_unknown_names(suppressed, known, parsed.filepath)
 
     updated: list[SieveResult] = []
     for result in results:
-        if result.skipped or not result.findings:
+        if result.skipped or not result.findings or result.name in UNSUPPRESSIBLE:
             updated.append(result)
             continue
 

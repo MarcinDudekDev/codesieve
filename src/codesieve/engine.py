@@ -26,6 +26,7 @@ from codesieve.sieves.guard_clauses import GuardClausesSieve
 from codesieve.sieves.deprecated_api import DeprecatedAPISieve
 from codesieve.sieves.comments import CommentsSieve
 from codesieve.sieves.dry import DrySieve
+from codesieve.sieves.no_silencing import NoSilencingSieve
 from codesieve.suppression import apply_suppressions
 
 SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
@@ -39,6 +40,7 @@ SIEVE_REGISTRY: dict[str, type[BaseSieve]] = {
     "DeprecatedAPI": DeprecatedAPISieve,
     "Comments": CommentsSieve,
     "DRY": DrySieve,
+    "NoSilencing": NoSilencingSieve,
 }
 
 

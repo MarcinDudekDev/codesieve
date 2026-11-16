@@ -29,6 +29,7 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "SRP": 0.15,
     "Complexity": 0.10,
     "Comments": 0.10,
+    "NoSilencing": 0.05,
 }
 
 

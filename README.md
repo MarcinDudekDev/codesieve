@@ -22,6 +22,7 @@ Traditional linters focus on style. CodeSieve focuses on **design principles** -
 | **DeprecatedAPI** | Calls to deprecated/removed PHP functions with replacement suggestions |
 | **Comments** | Docstring/JSDoc coverage on named functions |
 | **DRY** | Duplicate function bodies — identical logic extracted instead of copied |
+| **NoSilencing** | Suppression comments: `# noqa`, `# type: ignore`, `phpcs:ignore`, `@ts-ignore`, `eslint-disable`, `//nolint`, `# codesieve: ignore` |
 
 Each sieve produces a score from 1.0 (worst) to 10.0 (best), specific findings with line numbers, and an actionable summary. Scores are weighted and combined into an aggregate grade.
 
@@ -159,6 +160,7 @@ sieves:
   - DeprecatedAPI
   - Comments
   - DRY
+  - NoSilencing
 
 exclude:
   - "**/.venv/**"
@@ -176,6 +178,7 @@ weights:
   DeprecatedAPI: 0.05
   DRY: 0.15
   Comments: 0.10
+  NoSilencing: 0.05
 
 fail_under: 7.0
 
@@ -260,6 +263,16 @@ Independently of what git lists, the config file the run actually loads — when
 Allow a deliberate change by running with `CODESIEVE_ALLOW_CONFIG_CHANGE=1`; only the exact value `1` overrides, and a tool error still wins with exit 2. JSON reports carry a top-level `config_lock` list whenever `--diff` was used, and SARIF emits one `error` result per locked path.
 
 Known limits: a config loaded from *outside* the scanned repository — for example from the current directory elsewhere — is out of the lock's reach and applies unchecked, and tampering with the git environment itself (`GIT_DIR`, `GIT_WORK_TREE`) is out of scope.
+
+### No new silencing
+
+The `NoSilencing` sieve reports every suppression comment it finds in a real comment node (a marker inside a string or a docstring does not count) and charges 1.0 point each. Its findings cannot be suppressed: `# codesieve: ignore` and `# codesieve: ignore[NoSilencing]` still hide other sieves' findings on that line, but the comment itself stays reported.
+
+On a whole file that is a count of existing suppressions. Combined with `--new-only` it becomes a rule for the change in front of you: an old `# noqa` on an untouched line is left alone, a newly added one fails the run.
+
+```bash
+codesieve scan . --diff main --new-only --sieves NoSilencing
+```
 
 ## Use with AI Agents
 
