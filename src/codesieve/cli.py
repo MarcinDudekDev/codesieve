@@ -56,6 +56,9 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
              config_from_target: bool, exclude_patterns: str | None, standard: str | None,
              diff_ref: str | None, new_only: bool):
     """Scan a file or directory for code quality."""
+    if diff_ref is not None and not diff_ref.strip():
+        click.echo("--diff needs a ref (or no value at all for HEAD); got an empty string.", err=True)
+        sys.exit(2)
     if new_only and not diff_ref:
         click.echo("--new-only requires --diff REF.", err=True)
         sys.exit(2)

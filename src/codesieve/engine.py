@@ -182,7 +182,7 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
             stderr=subprocess.DEVNULL,
         ).strip()
         diff_output = subprocess.check_output(  # noqa: S603
-            [git, "diff", "--name-only", "-z", "--diff-filter=ACM",
+            [git, "diff", "--name-only", "-z", "--diff-filter=ACMR",
              "--end-of-options", ref],
             cwd=root,
             text=True, errors="surrogateescape",

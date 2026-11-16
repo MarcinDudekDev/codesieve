@@ -340,3 +340,58 @@ def test_failed_diff_prints_one_line_without_gits_own_noise(repo: Path):
     assert "fatal:" not in done.stderr
     assert len(done.stderr.strip().splitlines()) == 1, done.stderr
     assert done.stdout == ""
+
+
+# --- regressions found by independent verification (round 2) ----------------------------------
+
+def test_plain_diff_sees_renamed_files(repo: Path):
+    """A rename is a change: git reports it as R, which the old ACM filter dropped."""
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "second")
+    _git(repo, "mv", "clean.py", "tidy.py")
+    result = _scan(str(repo), "--diff", "HEAD", "--format", "json")
+    assert result.exit_code == 0, result.output
+    assert [Path(f["path"]).name for f in json.loads(result.stdout)["files"]] == ["tidy.py"]
+
+
+def test_plain_diff_sees_a_committed_rename_with_edits(repo: Path):
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "second")
+    _git(repo, "mv", "clean.py", "tidy.py")
+    (repo / "tidy.py").write_text(CLEAN + "\n\nLIMIT = 3\nOTHER = LIMIT\n")
+    _git(repo, "commit", "-q", "-am", "rename and edit")
+    result = _scan(str(repo), "--diff", "HEAD~1", "--format", "json")
+    assert result.exit_code == 0, result.output
+    assert [Path(f["path"]).name for f in json.loads(result.stdout)["files"]] == ["tidy.py"]
+
+
+def test_plain_diff_and_new_only_agree_on_which_tracked_files_changed(repo: Path):
+    """The invariant behind three separate bugs: both modes must scope the same tracked files."""
+    for name in ("keep.py", "edit.py", "move.py", "move_edit.py", "na\u00efve.py", "gone.py"):
+        (repo / name).write_text(CLEAN)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "second")
+    (repo / "edit.py").write_text(CLEAN + "\n\nLIMIT = 3\n")
+    (repo / "na\u00efve.py").write_text(CLEAN + "\n\nLIMIT = 3\n")
+    _git(repo, "mv", "move.py", "moved.py")
+    _git(repo, "mv", "move_edit.py", "moved_edit.py")
+    (repo / "moved_edit.py").write_text(CLEAN + "\n\nLIMIT = 3\n")
+    _git(repo, "rm", "-q", "gone.py")
+    (repo / "added.py").write_text(CLEAN)
+    _git(repo, "add", "added.py")
+
+    def scoped(*mode: str) -> list[str]:
+        result = _scan(str(repo), "--format", "json", *mode)
+        assert result.exit_code in (0, 1), result.output
+        return sorted(Path(f["path"]).name for f in json.loads(result.stdout)["files"])
+
+    expected = ["added.py", "edit.py", "moved.py", "moved_edit.py", "na\u00efve.py"]
+    assert scoped("--diff", "HEAD") == expected
+    assert scoped("--diff", "HEAD", "--new-only") == expected
+
+
+@pytest.mark.parametrize("extra", [(), ("--new-only",)])
+def test_empty_diff_ref_is_a_tool_error_not_a_full_scan(repo: Path, extra: tuple[str, ...]):
+    result = _scan(str(repo), "--diff=", "--format", "json", *extra)
+    assert result.exit_code == 2, result.output
+    assert "aggregate_score" not in result.output
