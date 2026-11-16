@@ -233,3 +233,110 @@ def test_crash_in_json_mode_keeps_stdout_valid_json(project: Path, crashing_scan
     data = json.loads(result.stdout)  # the error line goes to stderr, not into the JSON
     assert [Path(f["path"]).name for f in data["files"]] == ["clean.py"]
     assert "boom.py" in result.stderr
+
+
+# --- regressions found by independent verification (round 1) ----------------------------------
+
+import os  # noqa: E402
+import sys  # noqa: E402
+
+HANG_LIMIT_S = 30
+
+
+def _scan_subprocess(*args: str, cwd: Path) -> subprocess.CompletedProcess:
+    """Run the real CLI in a child process: captures git's own stderr and bounds a hang."""
+    return subprocess.run(
+        [sys.executable, "-m", "codesieve", "scan", *args],
+        cwd=cwd, capture_output=True, text=True, timeout=HANG_LIMIT_S,
+    )
+
+
+def test_config_that_is_not_utf8_exits_2(project: Path):
+    (project / ".codesieve.yml").write_bytes(b"\xff\xfe\x00\x01x")
+    _assert_tool_error(_scan(str(project)), ".codesieve.yml")
+
+
+def test_config_nested_beyond_the_parser_limit_exits_2(project: Path):
+    depth = 2500
+    (project / ".codesieve.yml").write_text("x: " + "[" * depth + "1" + "]" * depth + "\n")
+    _assert_tool_error(_scan(str(project)), ".codesieve.yml")
+
+
+@pytest.mark.parametrize("body", [
+    "weights:\n  KISS: .nan\n",
+    "weights:\n  KISS: .inf\n",
+    "weights:\n  KISS: -1\n",
+    "fail_under: .nan\n",
+    "fail_under: .inf\n",
+    "fail_under: -5\n",
+    "sieves: []\n",
+])
+def test_config_with_a_nonsense_number_or_empty_sieve_list_exits_2(project: Path, body: str):
+    """A NaN weight used to print a fabricated 10.0 A and pass --fail-under."""
+    (project / "poor.py").write_text(POOR)
+    (project / ".codesieve.yml").write_text(body)
+    _assert_tool_error(_scan(str(project), "--fail-under", "5"), ".codesieve.yml")
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-1"])
+def test_nonsense_fail_under_on_the_command_line_exits_2(project: Path, value: str):
+    (project / "poor.py").write_text(POOR)
+    result = _scan(str(project), f"--fail-under={value}")
+    assert result.exit_code == 2, result.output
+    assert "Traceback" not in result.output
+
+
+def test_empty_sieves_option_exits_2(project: Path):
+    result = _scan(str(project), "--sieves", "")
+    assert result.exit_code == 2, result.output
+
+
+@pytest.mark.parametrize("fmt", ["json", "sarif"])
+def test_plain_diff_with_no_changes_keeps_stdout_machine_readable(repo: Path, fmt: str):
+    (repo / "clean.py").write_text(CLEAN)  # back to the committed content: nothing changed
+    result = _scan(str(repo), "--diff", "HEAD", "--format", fmt)
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["files"] == [] if fmt == "json" else data["runs"][0]["results"] == []
+
+
+def test_plain_diff_sees_a_changed_file_with_a_non_ascii_name(repo: Path):
+    name = "weirdÿ.py"
+    (repo / name).write_text(CLEAN)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "add weird file")  # also commits the fixture's clean.py edit
+    (repo / name).write_text(CLEAN + "\n\nLIMIT = 3\n")
+    result = _scan(str(repo), "--diff", "HEAD", "--format", "json")
+    assert result.exit_code == 0, result.output
+    assert [Path(f["path"]).name for f in json.loads(result.stdout)["files"]] == [name]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs POSIX FIFOs")
+def test_fifo_with_a_source_extension_does_not_hang_the_scan(project: Path):
+    os.mkfifo(project / "pipe.py")
+    done = _scan_subprocess(str(project), "--format", "json", cwd=project)
+    assert done.returncode == 0, done.stderr
+    assert [Path(f["path"]).name for f in json.loads(done.stdout)["files"]] == ["clean.py"]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs POSIX FIFOs")
+def test_fifo_as_config_is_a_tool_error_not_a_hang(project: Path):
+    os.mkfifo(project / ".codesieve.yml")
+    done = _scan_subprocess(str(project), cwd=project)
+    assert done.returncode == 2, done.stderr
+    assert ".codesieve.yml" in done.stderr
+    assert "Traceback" not in done.stderr
+
+
+def test_crashed_file_is_reported_exactly_once(project: Path, crashing_scan):
+    (project / "boom.py").write_text(CLEAN)
+    result = _scan(str(project), "--format", "json")
+    assert result.stderr.count("sieve exploded") == 1, result.stderr
+
+
+def test_failed_diff_prints_one_line_without_gits_own_noise(repo: Path):
+    done = _scan_subprocess(str(repo), "--diff", "no-such-ref", cwd=repo)
+    assert done.returncode == 2, done.stderr
+    assert "fatal:" not in done.stderr
+    assert len(done.stderr.strip().splitlines()) == 1, done.stderr
+    assert done.stdout == ""

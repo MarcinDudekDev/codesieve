@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import replace
 from fnmatch import fnmatchcase
 from pathlib import Path
@@ -97,7 +98,12 @@ def _is_excluded(rel_parts: tuple[str, ...], patterns: list[tuple[str, ...]]) ->
 
 
 def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
-    """Collect all supported files from a path, respecting exclusions."""
+    """Collect all supported files from a path, respecting exclusions.
+
+    Only regular files are scan candidates (``is_file()`` follows symlinks
+    and is False for FIFOs, sockets and devices) — anything else that merely
+    carries a source extension would block or crash the parser.
+    """
     if path.is_file():
         lang = detect_language(str(path))
         return [path] if lang else []
@@ -113,8 +119,11 @@ def _collect_files(path: Path, exclude: list[str]) -> list[Path]:
                 continue
             if _is_excluded(rel + (name,), patterns):
                 continue
-            if detect_language(str(base / name)):
-                files.append(base / name)
+            candidate = base / name
+            if not candidate.is_file():
+                continue
+            if detect_language(str(candidate)):
+                files.append(candidate)
     return sorted(files)
 
 
@@ -154,6 +163,12 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
 
     An empty set means "nothing changed" and None means "no diff available"
     (not a repo, bad ref, no git), so callers can tell the two apart.
+
+    ``-z`` output is NUL-separated and unquoted — without it git C-quotes
+    non-ASCII names (``"weird\\303\\277.py"``) and the changed file silently
+    drops out of the scan. ``surrogateescape`` keeps undecodable names from
+    crashing the decode. Git's own stderr goes to DEVNULL so the CLI's error
+    line stays the only message the user sees.
     """
     import shutil
     import subprocess
@@ -163,18 +178,19 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
         root = subprocess.check_output(  # noqa: S603
             [git, "rev-parse", "--show-toplevel"],
             cwd=str(path if path.is_dir() else path.parent),
-            text=True,
+            text=True, errors="surrogateescape",
+            stderr=subprocess.DEVNULL,
         ).strip()
         diff_output = subprocess.check_output(  # noqa: S603
-            [git, "diff", "--name-only", "--diff-filter=ACM", ref],
+            [git, "diff", "--name-only", "-z", "--diff-filter=ACM",
+             "--end-of-options", ref],
             cwd=root,
-            text=True,
-        ).strip()
-        if not diff_output:
-            return set()
-        return {Path(root) / line for line in diff_output.splitlines()}
-    except (subprocess.CalledProcessError, FileNotFoundError):
+            text=True, errors="surrogateescape",
+            stderr=subprocess.DEVNULL,
+        )
+    except (subprocess.CalledProcessError, OSError):
         return None
+    return {Path(root) / name for name in diff_output.split("\0") if name}
 
 
 def _resolve_corpus_standard(files: list[Path], config: Config) -> str:
@@ -251,8 +267,10 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
             reports.append(file_report)
         except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan
             errors.append((str(f), str(e)))
-            from rich.console import Console
-            Console(stderr=True).print(f"[red]Error scanning {f}: {e}[/red]")
+            # The single user-facing report for this crash. print(), not a
+            # Rich console: Rich wraps long paths mid-string, so "one readable
+            # line" would wrap into several.
+            print(f"Error scanning {f}: {e}", file=sys.stderr)
 
     if not reports:
         return ScanReport(new_only=new_only, base=base, errors=errors)

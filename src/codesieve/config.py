@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,17 @@ def _is_number(value: object) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _is_finite_nonnegative(value: object) -> bool:
+    """True for a finite int/float >= 0.
+
+    NaN and the infinities pass ``isinstance`` but poison the math downstream:
+    a NaN weight makes ``min(10, nan)`` return 10 (a fabricated grade A pass),
+    and a NaN ``fail_under`` is never exceeded, so the gate silently disables
+    itself.
+    """
+    return _is_number(value) and math.isfinite(value) and value >= 0
+
+
 def _validate_types(data: dict, config_path: Path) -> None:
     """Raise ConfigError on any wrongly typed value in a parsed config mapping.
 
@@ -73,16 +85,17 @@ def _validate_types(data: dict, config_path: Path) -> None:
 
     if "sieves" in data:
         sieves = data["sieves"]
-        if not isinstance(sieves, list) or not all(isinstance(s, str) for s in sieves):
-            raise bad("sieves", "a list of strings")
+        if (not isinstance(sieves, list) or not sieves
+                or not all(isinstance(s, str) for s in sieves)):
+            raise bad("sieves", "a non-empty list of strings")
     if "weights" in data:
         weights = data["weights"]
         if (not isinstance(weights, dict)
                 or not all(isinstance(k, str) for k in weights)
-                or not all(_is_number(v) for v in weights.values())):
-            raise bad("weights", "a mapping of sieve name to number")
-    if "fail_under" in data and not _is_number(data["fail_under"]):
-        raise bad("fail_under", "a number")
+                or not all(_is_finite_nonnegative(v) for v in weights.values())):
+            raise bad("weights", "a mapping of sieve name to a finite number >= 0")
+    if "fail_under" in data and not _is_finite_nonnegative(data["fail_under"]):
+        raise bad("fail_under", "a finite number >= 0")
     if "deterministic" in data and not isinstance(data["deterministic"], bool):
         raise bad("deterministic", "a boolean")
     if "format" in data and data["format"] not in ("terminal", "json", "sarif"):
@@ -165,12 +178,20 @@ class Config:
 
         if not config_path.exists():
             return cls()
+        if not config_path.is_file():
+            # A FIFO or device would block on open(); a directory fails anyway.
+            # stat() never blocks, so check before touching the file.
+            raise ConfigError(f"{config_path}: not a regular file")
 
         try:
             with open(config_path) as f:
                 data = yaml.safe_load(f)
         except yaml.YAMLError as e:
             raise ConfigError(f"{config_path}: invalid YAML: {e}") from e
+        except (UnicodeDecodeError, RecursionError) as e:
+            # Not-UTF-8 bytes and absurdly deep nesting are parse failures
+            # too; they must not escape as tracebacks.
+            raise ConfigError(f"{config_path}: cannot parse config: {e}") from e
         except OSError as e:
             raise ConfigError(f"{config_path}: cannot read config: {e}") from e
 

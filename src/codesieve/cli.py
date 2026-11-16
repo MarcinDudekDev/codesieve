@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import sys
 from pathlib import Path
 
@@ -26,7 +27,8 @@ def main():
 @click.argument("path", type=click.Path(exists=True))
 @click.option("--format", "fmt", type=click.Choice(["terminal", "json", "sarif"]), default=None, help="Output format")
 @click.option("--deterministic", is_flag=True, default=False, help="Only run deterministic sieves")
-@click.option("--fail-under", type=float, default=None, help="Fail if aggregate score is below this threshold")
+@click.option("--fail-under", type=float, default=None,
+              help="Fail if aggregate score is below this threshold (finite number >= 0)")
 @click.option("--sieves", type=str, default=None, help="Comma-separated list of sieves to run")
 @click.option("--config", "config_path", type=click.Path(), default=None,
               help="Path to .codesieve.yml (exit 2 if it does not exist or is invalid)")
@@ -73,8 +75,14 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
     if deterministic:
         config.deterministic = True
     if fail_under is not None:
+        if not math.isfinite(fail_under) or fail_under < 0:
+            click.echo(f"--fail-under must be a finite number >= 0, got {fail_under}", err=True)
+            sys.exit(2)
         config.fail_under = fail_under
-    if sieves:
+    if sieves is not None:
+        if not sieves.strip():
+            click.echo("--sieves names no sieves to run.", err=True)
+            sys.exit(2)
         config.sieves = [s.strip() for s in sieves.split(",")]
     if standard:
         config.standard = standard
@@ -97,13 +105,13 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
         if not diff_ref:
             click.echo("No supported files found.", err=True)
             sys.exit(2)
-        if not report.new_only:
+        # An empty diff scope: terminal keeps the plain line, but for
+        # --format json|sarif stdout must stay machine-readable, so it falls
+        # through to the renderers with the normal empty report.
+        if config.format == "terminal":
             click.echo(f"No changed files since {diff_ref}.")
-            return
-        # --new-only: an empty scope is still a valid report in every format;
-        # terminal output keeps the plain line before the rendered summary.
-        if config.format not in ("json", "sarif"):
-            click.echo(f"No changed files since {diff_ref}.")
+            if not report.new_only:
+                return
 
     if config.format == "json":
         click.echo(report_to_json(report))
@@ -114,8 +122,8 @@ def scan_cmd(path: str, fmt: str | None, deterministic: bool,
         render_scan_report(report, console)
 
     # A crashed file is a tool error: report the survivors, then fail the run.
-    for crashed_path, message in report.errors:
-        click.echo(f"Error scanning {crashed_path}: {message}", err=True)
+    # The error line itself is printed once by the engine when the file fails —
+    # repeating it here would report every crash twice.
     if report.errors:
         sys.exit(2)
 
