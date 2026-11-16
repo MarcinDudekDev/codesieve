@@ -406,3 +406,47 @@ def test_duplicate_key_in_config_is_a_config_error(repo: Path):
     assert result.exit_code == 2, result.output
     assert "fail_under" in result.output
     assert "Traceback" not in result.output
+
+
+# --- regressions found by independent verification (round 2) ----------------------------------
+
+def _commit_crlf_config(repo: Path) -> None:
+    """Commit a config whose blob really holds CRLF, whatever the machine's global autocrlf."""
+    _git(repo, "config", "core.autocrlf", "false")
+    (repo / ".codesieve.yml").write_bytes(b"fail_under: 5\r\n")
+    _git(repo, "commit", "-q", "-am", "config with CRLF endings")
+    assert b"\r\n" in subprocess.run(
+        ["git", "cat-file", "blob", "HEAD:.codesieve.yml"], cwd=repo, check=True, capture_output=True).stdout
+
+
+@pytest.mark.parametrize("setting", ["true", "input"])
+@pytest.mark.parametrize("mode", MODES)
+def test_untouched_crlf_config_is_not_locked_under_autocrlf(repo: Path, setting: str, mode: tuple[str, ...]):
+    """A committed blob that already holds CRLF: git calls it clean, so must the lock."""
+    _commit_crlf_config(repo)
+    _git(repo, "config", "core.autocrlf", setting)
+    assert _git(repo, "status", "--porcelain") == ""  # fixture guard: nothing changed for git
+    (repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(repo), "--format", "json", *mode)
+    assert result.exit_code == 0, result.output
+    assert _locked_paths(result) == []
+
+
+def test_untouched_crlf_config_is_not_locked_under_text_auto(repo: Path):
+    _commit_crlf_config(repo)
+    (repo / ".gitattributes").write_text("* text=auto\n")
+    _git(repo, "add", ".gitattributes")
+    _git(repo, "commit", "-q", "-m", "attributes")
+    (repo / "app.py").write_text(CLEAN + HARMLESS)
+    result = _scan(str(repo), "--format", "json", "--diff", "HEAD")
+    assert result.exit_code == 0, result.output
+    assert _locked_paths(result) == []
+
+
+def test_crlf_config_with_a_real_edit_is_still_locked(repo: Path):
+    _commit_crlf_config(repo)
+    _git(repo, "config", "core.autocrlf", "true")
+    (repo / ".codesieve.yml").write_bytes(b"fail_under: 0\r\n")
+    result = _scan(str(repo), "--format", "json", "--diff", "HEAD")
+    assert result.exit_code == 1, result.output
+    assert _locked_paths(result) == [".codesieve.yml"]

@@ -269,25 +269,29 @@ def _base_blob(root: Path, base: str, ref: str, rel: str) -> str | None:
     raise DiffScopeError(f"config lock: git rev-parse failed for --diff {ref!r}")
 
 
-def _worktree_blob(root: Path, ref: str, worktree: Path) -> str:
-    """The blob id ``worktree`` would get at check-in, clean filters included.
+def _worktree_blobs(root: Path, ref: str, worktree: Path) -> set[str]:
+    """Blob ids ``worktree`` may legitimately have: filtered and byte-for-byte.
 
     The path form of ``git hash-object`` applies autocrlf and eol/text
-    attributes exactly like a real commit, so a repo with filters enabled
-    does not lock an untouched config.
+    attributes like a commit would, so an untouched file checked out with CRLF
+    from an LF blob still matches. The ``--no-filters`` form covers the other
+    direction: a blob that itself holds CRLF, which git leaves alone but the
+    clean filter would normalise - without it an untouched committed config
+    locks every run under ``core.autocrlf`` or ``* text=auto``.
     """
-    out = _run(root, ["hash-object", "--", str(worktree)],
-               f"config lock: git hash-object failed for --diff {ref!r}")
-    return out.strip()
+    error = f"config lock: git hash-object failed for --diff {ref!r}"
+    filtered = _run(root, ["hash-object", "--", str(worktree)], error)
+    raw = _run(root, ["hash-object", "--no-filters", "--", str(worktree)], error)
+    return {filtered.strip(), raw.strip()}
 
 
 def _matches_base_blob(root: Path, base: str, ref: str, rel: str,
                        worktree: Path) -> bool:
-    """True when ``worktree`` hashes identically to the ``base:rel`` blob."""
+    """True when ``worktree`` is the ``base:rel`` blob, as checked out or byte-for-byte."""
     base_blob = _base_blob(root, base, ref, rel)
     if base_blob is None:
         return False
-    return base_blob == _worktree_blob(root, ref, worktree)
+    return base_blob in _worktree_blobs(root, ref, worktree)
 
 
 def _symlink_matches_base(root: Path, root_real: Path, base: str, ref: str,
