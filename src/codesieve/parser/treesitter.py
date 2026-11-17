@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -43,6 +44,7 @@ class FunctionInfo:
     node: tree_sitter.Node
     param_count: int
     start_line: int
+    end_line: int
     code_line_count: int
     """Lines excluding the function's own docstring.
 
@@ -68,6 +70,21 @@ class ClassInfo:
 
 _HEREDOC_BODY_TYPES = ("heredoc", "heredoc_body", "nowdoc", "nowdoc_body")
 
+_LONE_CR = re.compile(rb"\r(?!\n)")
+
+
+def _normalize_lone_cr(source: bytes) -> bytes:
+    """Turn classic-Mac CR line breaks into LF so tree-sitter sees the rows.
+
+    tree-sitter only counts ``\\n`` as a row break, so a CR-only file would
+    parse as one row of ERROR nodes. Swapping a lone CR for LF is a 1:1 byte
+    replacement — length and every byte offset stay valid — and ``\\r\\n``
+    pairs are left untouched.
+    """
+    if b"\r" not in source:
+        return source
+    return _LONE_CR.sub(b"\n", source)
+
 
 class ParsedFile:
     """Wrapper around a tree-sitter parse tree with convenience methods."""
@@ -90,7 +107,7 @@ class ParsedFile:
             raise ValueError(f"No parser for: {self.language}")
 
         self.lang_map: LanguageMap = LANGUAGE_REGISTRY[self.language]
-        self.source: bytes = Path(filepath).read_bytes()
+        self.source: bytes = _normalize_lone_cr(Path(filepath).read_bytes())
         self.source_text: str = self.source.decode("utf-8", errors="replace")
         # TSX files need a separate parser
         if self.language == "typescript" and filepath.endswith(".tsx"):
@@ -137,6 +154,7 @@ class ParsedFile:
             result.append(FunctionInfo(
                 name=name, node=node,
                 param_count=params, start_line=node.start_point[0] + 1,
+                end_line=node.end_point[0] + 1,
                 code_line_count=total_lines - self._docstring_line_count(node),
             ))
         return result
