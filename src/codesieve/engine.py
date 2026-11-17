@@ -10,7 +10,7 @@ from pathlib import Path
 
 from codesieve import standards
 from codesieve.config import Config
-from codesieve.diffscope import DiffScopeError, config_lock, resolve_scope
+from codesieve.diffscope import DiffScopeError, added_lines_to_rows, config_lock, resolve_scope
 from codesieve.models import FileReport, ScanReport, SieveType
 from codesieve.parser.languages import detect_language
 from codesieve.parser.treesitter import ParsedFile
@@ -316,9 +316,11 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
                 key = _disk_key(f)
                 added = added_by_file.get(key) if key is not None else None
                 # None marks an untracked file: every parsed line was added.
+                # A tracked file's numbers are git's, so they are mapped onto
+                # parser rows first — the two counts split below a lone CR.
                 file_report.added_lines = (
-                    added if added is not None
-                    else set(range(1, file_report.line_count + 1))
+                    set(range(1, file_report.line_count + 1)) if added is None
+                    else added_lines_to_rows(f.read_bytes(), added)
                 )
             reports.append(file_report)
         except Exception as e:  # codesieve: ignore[ErrorHandling]  — intentional per-file resilience: one bad file must not abort the whole scan

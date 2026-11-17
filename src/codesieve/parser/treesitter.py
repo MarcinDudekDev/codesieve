@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass
 from functools import cached_property
 from pathlib import Path
@@ -16,7 +15,7 @@ import tree_sitter_go as tsgo
 
 from codesieve import standards
 from codesieve.parser.languages import LanguageMap, LANGUAGE_REGISTRY, detect_language
-from codesieve.parser import ast_utils
+from codesieve.parser import _LONE_CR, ast_utils
 
 
 PY_LANGUAGE = tree_sitter.Language(tspython.language())
@@ -68,8 +67,6 @@ class ClassInfo:
 
 
 _HEREDOC_BODY_TYPES = ("heredoc", "heredoc_body", "nowdoc", "nowdoc_body")
-
-_LONE_CR = re.compile(rb"\r(?!\n)")
 
 
 def _normalize_lone_cr(source: bytes) -> bytes:

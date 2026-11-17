@@ -19,6 +19,7 @@ import subprocess
 from pathlib import Path, PurePosixPath
 
 from codesieve.config import CONFIG_FILENAME
+from codesieve.parser import _LONE_CR
 
 
 class DiffScopeError(Exception):
@@ -151,6 +152,39 @@ def resolve_scope(path: Path, ref: str) -> tuple[str, dict[Path, set[int] | None
     for name in _untracked_paths(root, ref):
         scope[root / name] = None
     return base, scope
+
+
+# A parser row break: ``\n``, or a lone ``\r`` — the same definition the
+# parser's row numbering is built on.
+_ROW_BREAK = re.compile(rb"\n|" + _LONE_CR.pattern)
+
+
+def added_lines_to_rows(raw: bytes, added: set[int]) -> set[int]:
+    """Translate git's added line numbers into parser rows.
+
+    git breaks a line only on ``\\n``; the parser also breaks a row on a lone
+    ``\\r`` (``_normalize_lone_cr``), so below a stray CR the same code sits
+    on different numbers in the two schemes and comparing raw would drop new
+    findings and promote old ones. A parser row never spans a git line —
+    every in-line row break is a lone CR — so a row belongs to git line
+    ``1 +`` the count of ``\\n`` before its start offset, and it counts as
+    added exactly when that git line does. One pass over the bytes; files
+    with no lone CR map 1:1 and return unchanged.
+    """
+    if not added or _LONE_CR.search(raw) is None:
+        return added
+    rows: set[int] = set()
+    git_line = 1
+    row = 1
+    if git_line in added:
+        rows.add(row)
+    for match in _ROW_BREAK.finditer(raw):
+        if match.group() == b"\n":
+            git_line += 1
+        row += 1
+        if git_line in added:
+            rows.add(row)
+    return rows
 
 
 def _lock_listing(root: Path, base: str, ref: str) -> list[str]:
