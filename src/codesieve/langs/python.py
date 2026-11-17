@@ -130,6 +130,9 @@ class PythonTypeHintRules:
         return 0.0, "", []
 
 
+_PY_EXCEPT_SKIP_TYPES = ("block", "comment", "line_continuation")
+
+
 class PythonErrorHandlingRules:
     supported = True
     skip_reason = ""
@@ -138,14 +141,20 @@ class PythonErrorHandlingRules:
     raise_types = ("raise_statement",)
     raise_skip_types = ("function_definition", "except_clause")
 
-    def _type_expression(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
+    @staticmethod
+    def _first_type_child(node: tree_sitter.Node) -> tree_sitter.Node | None:
         for child in node.named_children:
-            if child.type in ("block", "comment"):
-                continue
-            if child.type == "as_pattern":
-                return child.named_children[0] if child.named_children else None
-            return child
+            if child.type not in _PY_EXCEPT_SKIP_TYPES:
+                return child
         return None
+
+    def _type_expression(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
+        expr = self._first_type_child(node)
+        if expr is not None and expr.type == "as_pattern":
+            expr = self._first_type_child(expr)
+        while expr is not None and expr.type == "parenthesized_expression":
+            expr = self._first_type_child(expr)
+        return expr
 
     def is_bare_handler(self, node: tree_sitter.Node) -> bool:
         return self._type_expression(node) is None
