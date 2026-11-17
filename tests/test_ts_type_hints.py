@@ -37,7 +37,7 @@ def test_js_type_hints_skipped():
     parsed = ParsedFile(str(js_fixtures / "good.js"))
     result = TypeHintsSieve().analyze(parsed)
     assert result.skipped is True
-    assert "not applicable" in result.skip_reason.lower()
+    assert "not applicable" in (result.skip_reason or "").lower()
 
 
 def test_fully_typed_ts():
