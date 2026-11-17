@@ -305,6 +305,38 @@ def test_raise_inside_nested_function_is_not_a_reraise(tmp_path):
     assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY]
 
 
+def test_raise_in_nested_class_body_is_a_reraise(tmp_path):
+    # A class body runs when the class statement runs, so this raise leaves the
+    # handler. ``class_definition`` must stay out of ``raise_skip_types``.
+    path = tmp_path / "class_body.py"
+    path.write_text(
+        "def f():\n"
+        "    try:\n"
+        "        g()\n"
+        "    except (ValueError, Exception) as e:\n"
+        "        class Later:\n"
+        "            raise e\n"
+    )
+    result = ErrorHandlingSieve().analyze(ParsedFile(str(path)))
+    assert result.findings == []
+
+
+def test_raise_in_method_of_nested_class_is_not_a_reraise(tmp_path):
+    path = tmp_path / "class_method.py"
+    path.write_text(
+        "def f():\n"
+        "    try:\n"
+        "        g()\n"
+        "    except (ValueError, Exception) as e:\n"
+        "        class Later:\n"
+        "            def run(self):\n"
+        "                raise e\n"
+        "        print(Later)\n"
+    )
+    result = ErrorHandlingSieve().analyze(ParsedFile(str(path)))
+    assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY]
+
+
 # Not broad: specific types, look-alike names, and anything that is not a bare name.
 @pytest.mark.parametrize("type_expr", [
     "(ValueError, KeyError)",

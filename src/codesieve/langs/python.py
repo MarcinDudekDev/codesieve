@@ -139,6 +139,7 @@ class PythonErrorHandlingRules:
     handler_node_type = "except_clause"
     broad_exception_types = frozenset({"Exception", "BaseException"})
     raise_types = ("raise_statement",)
+    # No "class_definition": a class body runs in place, so a raise there leaves the handler.
     raise_skip_types = ("function_definition", "except_clause")
 
     @staticmethod
