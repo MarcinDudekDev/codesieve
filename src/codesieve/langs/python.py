@@ -180,22 +180,29 @@ class PythonErrorHandlingRules:
         return None
 
     def get_caught_type_text(self, node: tree_sitter.Node, source: bytes) -> str | None:
-        return self._broad_text(self._type_expression(node), source)
-
-    def _broad_text(self, expr: tree_sitter.Node | None, source: bytes) -> str | None:
-        while expr is not None and expr.type == "parenthesized_expression":
-            expr = self._first_type_child(expr)
-        if expr is None:
-            return None
-        if expr.type == "identifier":
-            text = ast_utils.get_node_text(expr, source)
-            return text if text in self.broad_exception_types else None
-        if expr.type != "tuple":
-            return None
-        for member in expr.named_children:
-            text = self._broad_text(member, source)
+        for child in node.named_children:
+            if child.type in _PY_EXCEPT_SKIP_TYPES:
+                continue
+            expr = self._first_type_child(child) if child.type == "as_pattern" else child
+            text = self._broad_text(expr, source)
             if text is not None:
                 return text
+        return None
+
+    def _broad_text(self, expr: tree_sitter.Node | None, source: bytes) -> str | None:
+        stack = [expr] if expr is not None else []
+        while stack:
+            node = stack.pop()
+            while node is not None and node.type == "parenthesized_expression":
+                node = self._first_type_child(node)
+            if node is None or node.type in _PY_EXCEPT_SKIP_TYPES:
+                continue
+            if node.type == "identifier":
+                text = ast_utils.get_node_text(node, source)
+                if text in self.broad_exception_types:
+                    return text
+            elif node.type == "tuple":
+                stack.extend(reversed(node.named_children))
         return None
 
     def has_broad_catch_concept(self) -> bool:
