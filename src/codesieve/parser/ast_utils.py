@@ -46,9 +46,14 @@ def find_nodes(root: tree_sitter.Node, types: tuple[str, ...]) -> list[tree_sitt
     return [n for n in walk_tree(root) if n.type in types]
 
 
+def _decode_slice(source: bytes, start: int, end: int) -> str:
+    """Decode a source slice, folding CRLF to LF so compared or printed text reads like the LF twin."""
+    return source[start:end].decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
 def get_node_text(node: tree_sitter.Node, source: bytes) -> str:
     """Extract source text for a node."""
-    return source[node.start_byte:node.end_byte].decode("utf-8", errors="replace")
+    return _decode_slice(source, node.start_byte, node.end_byte)
 
 
 def node_line_count(node: tree_sitter.Node) -> int:
@@ -119,7 +124,7 @@ def normalize_subtree(
         if blank_identifiers and not protected and n.type in identifier_types:
             return "§ID§"
         if not n.children:
-            return source[n.start_byte:n.end_byte].decode("utf-8", errors="replace")
+            return _decode_slice(source, n.start_byte, n.end_byte)
         callee = n.child_by_field_name("function") if n.type in call_types else None
         callee_id = callee.id if callee is not None else None
         inner = "".join(
