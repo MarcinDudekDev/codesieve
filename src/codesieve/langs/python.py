@@ -130,9 +130,6 @@ class PythonTypeHintRules:
         return 0.0, "", []
 
 
-_EXCEPT_TYPE_INDICATORS = ("identifier", "attribute", "tuple")
-
-
 class PythonErrorHandlingRules:
     supported = True
     skip_reason = ""
@@ -141,8 +138,17 @@ class PythonErrorHandlingRules:
     raise_types = ("raise_statement",)
     raise_skip_types = ("function_definition", "except_clause")
 
+    def _type_expression(self, node: tree_sitter.Node) -> tree_sitter.Node | None:
+        for child in node.named_children:
+            if child.type in ("block", "comment"):
+                continue
+            if child.type == "as_pattern":
+                return child.named_children[0] if child.named_children else None
+            return child
+        return None
+
     def is_bare_handler(self, node: tree_sitter.Node) -> bool:
-        return not any(child.type in _EXCEPT_TYPE_INDICATORS for child in node.children)
+        return self._type_expression(node) is None
 
     def is_empty_body(self, node: tree_sitter.Node) -> bool:
         block = self.get_handler_body(node)
@@ -165,10 +171,11 @@ class PythonErrorHandlingRules:
         return None
 
     def get_caught_type_text(self, node: tree_sitter.Node, source: bytes) -> str | None:
-        for child in node.children:
-            if child.type == "identifier" and ast_utils.get_node_text(child, source) in self.broad_exception_types:
-                return ast_utils.get_node_text(child, source)
-        return None
+        expr = self._type_expression(node)
+        if expr is None or expr.type != "identifier":
+            return None
+        text = ast_utils.get_node_text(expr, source)
+        return text if text in self.broad_exception_types else None
 
     def has_broad_catch_concept(self) -> bool:
         return True
