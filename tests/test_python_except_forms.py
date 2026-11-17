@@ -352,3 +352,63 @@ def test_php_broad_message_is_unchanged(tmp_path):
     path.write_text("<?php\nfunction f() {\n    try {\n        g();\n    } catch (\\Exception $e) {\n        log_it($e);\n    }\n}\n")
     result = ErrorHandlingSieve().analyze(ParsedFile(str(path)))
     assert [f.message for f in result.findings] == ["broad 'catch \\Exception' without re-throw"]
+
+
+# --- verification round 1: depth and unparenthesised type lists -------------
+
+@pytest.mark.parametrize("depth", [50, 2000])
+def test_deeply_nested_tuple_does_not_crash_and_is_broad(tmp_path, depth):
+    type_expr = "(ValueError, " * depth + "Exception" + ")" * depth
+    result = _analyze(tmp_path, f"except {type_expr} as e")
+    assert [f.message for f in result.findings] == ["broad 'catch Exception' without re-throw"]
+
+
+def test_deeply_nested_specific_tuple_is_clean(tmp_path):
+    type_expr = "(ValueError, " * 2000 + "KeyError" + ")" * 2000
+    assert _analyze(tmp_path, f"except {type_expr}").findings == []
+
+
+def test_deeply_parenthesised_broad_name_is_broad(tmp_path):
+    result = _analyze(tmp_path, "except " + "(" * 2000 + "BaseException" + ")" * 2000)
+    assert [f.message for f in result.findings] == ["broad 'catch BaseException' without re-throw"]
+
+
+def test_deep_tuple_scans_through_the_engine(tmp_path):
+    path = tmp_path / "deep.py"
+    type_expr = "(ValueError, " * 2000 + "Exception" + ")" * 2000
+    path.write_text(_TEMPLATE.format(clause=f"except {type_expr}", body="print(1)"))
+    report = scan_file(path, Config())
+    eh = next(r for r in report.sieve_results if r.name == "ErrorHandling")
+    assert eh.score == 10.0 - BROAD_CATCH_PENALTY
+
+
+# PEP 758 (Python 3.14): `except A, B:` without parentheses is a type list.
+@pytest.mark.parametrize("clause, caught", [
+    ("except ValueError, Exception", "Exception"),
+    ("except Exception, ValueError", "Exception"),
+    ("except ValueError, KeyError, BaseException", "BaseException"),
+    ("except* ValueError, Exception", "Exception"),
+    ("except ValueError, (KeyError, Exception)", "Exception"),
+    ("except ValueError, (Exception)", "Exception"),
+    (f"except ValueError, {_CONT}Exception", "Exception"),
+    ("except BaseException, Exception", "BaseException"),
+])
+def test_unparenthesised_type_list_with_broad_member_is_broad(tmp_path, clause, caught):
+    result = _analyze(tmp_path, clause)
+    assert [f.message for f in result.findings] == [f"broad 'catch {caught}' without re-throw"], \
+        f"{clause!r}: {_shape(result.findings)}"
+    assert result.findings[0].penalty == BROAD_CATCH_PENALTY
+
+
+@pytest.mark.parametrize("clause", [
+    "except ValueError, KeyError",
+    "except* ValueError, KeyError",
+    "except ValueError, builtins.Exception",
+    "except ValueError, (KeyError, IndexError)",
+])
+def test_unparenthesised_type_list_of_specific_types_is_clean(tmp_path, clause):
+    assert _analyze(tmp_path, clause).findings == []
+
+
+def test_unparenthesised_broad_list_with_reraise_is_clean(tmp_path):
+    assert _analyze(tmp_path, "except ValueError, Exception", body="raise").findings == []
