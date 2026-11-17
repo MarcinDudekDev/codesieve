@@ -238,7 +238,117 @@ def test_typed_handler_survives_continuations_and_parentheses(tmp_path, clause):
     assert result.findings == [], f"{clause!r}: {_shape(result.findings)}"
 
 
-def test_one_element_tuple_of_exception_stays_non_broad(tmp_path):
-    # A tuple is not unwrapped: `(Exception,)` keeps the existing tuple rule.
-    assert _analyze(tmp_path, "except (Exception,) as e").findings == []
-    assert _analyze(tmp_path, "except (Exception,)").findings == []
+# --- broad types: BaseException, and tuples that contain a broad type -------
+# A tuple catches everything its broadest member catches.
+
+@pytest.mark.parametrize("type_expr, caught", [
+    ("BaseException", "BaseException"),
+    ("(BaseException)", "BaseException"),
+    ("(Exception,)", "Exception"),
+    ("(ValueError, Exception)", "Exception"),
+    ("(Exception, ValueError)", "Exception"),
+    ("(ValueError, KeyError, Exception)", "Exception"),
+    ("(ValueError, BaseException)", "BaseException"),
+    ("(ValueError, (Exception))", "Exception"),
+    ("(ValueError, (KeyError, Exception))", "Exception"),
+    ("((ValueError, Exception))", "Exception"),
+    ("(ValueError,  # specific\n            Exception)", "Exception"),
+    ("(os.error, Exception)", "Exception"),
+])
+@pytest.mark.parametrize("binding", ["", " as e"])
+@pytest.mark.parametrize("star", ["", "*"])
+def test_broad_member_makes_the_handler_broad(tmp_path, type_expr, caught, binding, star):
+    clause = f"except{star} {type_expr}{binding}"
+    result = _analyze(tmp_path, clause)
+    assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY], \
+        f"{clause!r}: {_shape(result.findings)}"
+    finding = result.findings[0]
+    assert finding.message == f"broad 'catch {caught}' without re-throw"
+    assert finding.severity == "warning"
+    assert finding.line == 4
+    assert result.score == 10.0 - BROAD_CATCH_PENALTY
+
+
+def test_plain_exception_message_is_unchanged(tmp_path):
+    result = _analyze(tmp_path, "except Exception as e")
+    assert [f.message for f in result.findings] == ["broad 'catch Exception' without re-throw"]
+
+
+def test_two_broad_members_are_one_finding(tmp_path):
+    result = _analyze(tmp_path, "except (Exception, BaseException) as e")
+    assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY]
+
+
+@pytest.mark.parametrize("clause", [
+    "except BaseException",
+    "except BaseException as e",
+    "except (ValueError, Exception)",
+    "except (ValueError, Exception) as e",
+    "except* (ValueError, BaseException) as eg",
+])
+def test_broad_member_with_reraise_is_clean(tmp_path, clause):
+    assert _analyze(tmp_path, clause, body="raise").findings == []
+
+
+def test_raise_inside_nested_function_is_not_a_reraise(tmp_path):
+    path = tmp_path / "nested.py"
+    path.write_text(
+        "def f():\n"
+        "    try:\n"
+        "        g()\n"
+        "    except (ValueError, Exception) as e:\n"
+        "        def later():\n"
+        "            raise e\n"
+        "        print(later)\n"
+    )
+    result = ErrorHandlingSieve().analyze(ParsedFile(str(path)))
+    assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY]
+
+
+# Not broad: specific types, look-alike names, and anything that is not a bare name.
+@pytest.mark.parametrize("type_expr", [
+    "(ValueError, KeyError)",
+    "(ValueError,)",
+    "()",
+    "(MyException, ExceptionGroup)",
+    "(BaseExceptionGroup, exception)",
+    "builtins.Exception",
+    "(ValueError, builtins.Exception)",
+    "(ValueError, errors.BaseException)",
+    "(ValueError, Exception())",
+    "(ValueError, EXCS[Exception])",
+    "[ValueError, Exception]",
+    "(x := Exception)",
+])
+@pytest.mark.parametrize("binding", ["", " as e"])
+def test_only_a_bare_broad_name_in_a_tuple_is_broad(tmp_path, type_expr, binding):
+    clause = f"except {type_expr}{binding}"
+    result = _analyze(tmp_path, clause)
+    assert result.findings == [], f"{clause!r}: {_shape(result.findings)}"
+
+
+def test_broad_tuple_with_empty_body_reports_both(tmp_path):
+    result = _analyze(tmp_path, "except (ValueError, Exception)", body="pass")
+    assert sorted(f.penalty for f in result.findings) == [BROAD_CATCH_PENALTY, EMPTY_BODY_PENALTY]
+
+
+def test_suppressing_broad_tuple_lifts_score_by_broad_penalty(tmp_path):
+    source = "def f():\n    try:\n        g()\n    except (ValueError, Exception) as e:{marker}\n        print(e)\n"
+    plain_path = tmp_path / "plain.py"
+    plain_path.write_text(source.format(marker=""))
+    ignored_path = tmp_path / "ignored.py"
+    ignored_path.write_text(source.format(marker="  # codesieve: ignore[ErrorHandling]"))
+
+    def eh_score(path: Path) -> float:
+        report = scan_file(path, Config())
+        return next(r for r in report.sieve_results if r.name == "ErrorHandling").score
+
+    assert eh_score(plain_path) == 10.0 - BROAD_CATCH_PENALTY
+    assert eh_score(ignored_path) == 10.0
+
+
+def test_php_broad_message_is_unchanged(tmp_path):
+    path = tmp_path / "case.php"
+    path.write_text("<?php\nfunction f() {\n    try {\n        g();\n    } catch (\\Exception $e) {\n        log_it($e);\n    }\n}\n")
+    result = ErrorHandlingSieve().analyze(ParsedFile(str(path)))
+    assert [f.message for f in result.findings] == ["broad 'catch \\Exception' without re-throw"]
