@@ -30,17 +30,17 @@ def _has_raise_in_scope(block: tree_sitter.Node, rules: ErrorHandlingRules) -> b
     return False
 
 
-def _is_broad_catch(handler_node: tree_sitter.Node, source: bytes, rules: ErrorHandlingRules) -> bool:
-    """Check if handler catches broad exception without re-raising."""
+def _broad_catch_type(handler_node: tree_sitter.Node, source: bytes, rules: ErrorHandlingRules) -> str | None:
+    """Return the broad type a handler catches without re-raising, else None."""
     if not rules.has_broad_catch_concept():
-        return False
+        return None
     type_text = rules.get_caught_type_text(handler_node, source)
     if type_text is None or type_text not in rules.broad_exception_types:
-        return False
+        return None
     body = rules.get_handler_body(handler_node)
     if body is None:
-        return False
-    return not _has_raise_in_scope(body, rules)
+        return None
+    return None if _has_raise_in_scope(body, rules) else type_text
 
 
 def _check_handler(handler_node: tree_sitter.Node, source: bytes, rules: ErrorHandlingRules) -> list[tuple[str, float, str]]:
@@ -53,8 +53,9 @@ def _check_handler(handler_node: tree_sitter.Node, source: bytes, rules: ErrorHa
         msg = "empty except body (pass/...)" if rules.handler_node_type == "except_clause" else "empty catch body"
         issues.append((msg, EMPTY_BODY_PENALTY, "warning"))
 
-    if _is_broad_catch(handler_node, source, rules):
-        broad_name = "Exception" if rules.handler_node_type == "except_clause" else "\\Exception"
+    broad_type = _broad_catch_type(handler_node, source, rules)
+    if broad_type is not None:
+        broad_name = broad_type if rules.handler_node_type == "except_clause" else "\\Exception"
         issues.append((f"broad 'catch {broad_name}' without re-throw", BROAD_CATCH_PENALTY, "warning"))
 
     return issues

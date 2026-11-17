@@ -137,7 +137,7 @@ class PythonErrorHandlingRules:
     supported = True
     skip_reason = ""
     handler_node_type = "except_clause"
-    broad_exception_types = frozenset({"Exception"})
+    broad_exception_types = frozenset({"Exception", "BaseException"})
     raise_types = ("raise_statement",)
     raise_skip_types = ("function_definition", "except_clause")
 
@@ -180,11 +180,23 @@ class PythonErrorHandlingRules:
         return None
 
     def get_caught_type_text(self, node: tree_sitter.Node, source: bytes) -> str | None:
-        expr = self._type_expression(node)
-        if expr is None or expr.type != "identifier":
+        return self._broad_text(self._type_expression(node), source)
+
+    def _broad_text(self, expr: tree_sitter.Node | None, source: bytes) -> str | None:
+        while expr is not None and expr.type == "parenthesized_expression":
+            expr = self._first_type_child(expr)
+        if expr is None:
             return None
-        text = ast_utils.get_node_text(expr, source)
-        return text if text in self.broad_exception_types else None
+        if expr.type == "identifier":
+            text = ast_utils.get_node_text(expr, source)
+            return text if text in self.broad_exception_types else None
+        if expr.type != "tuple":
+            return None
+        for member in expr.named_children:
+            text = self._broad_text(member, source)
+            if text is not None:
+                return text
+        return None
 
     def has_broad_catch_concept(self) -> bool:
         return True
