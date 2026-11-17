@@ -179,7 +179,9 @@ class DrySieve(BaseSieve):
 
         findings: list[Finding] = []
         penalty = 0.0
-        for group in sorted(kept, key=lambda g: g.first.start_point[0]):
+        # Row then column: a total order, so findings sharing a line never depend on
+        # byte lengths (a CRLF break inside an expression adds a byte).
+        for group in sorted(kept, key=lambda g: tuple(g.first.start_point)):
             count = len(group.nodes)
             findings.append(Finding(
                 message=(f"expression `{_snippet(group.first, parsed.source)}` repeated "

@@ -70,8 +70,10 @@ def _is_crlf_only_leaf(node: tree_sitter.Node) -> bool:
     both sides, and any run containing real text is kept for its content, so
     only break-led pure-whitespace ``jsx_text`` leaves are skipped.
     """
+    if node.type != "jsx_text":  # type first: node.text copies bytes and this runs per node
+        return False
     text = node.text or b""
-    return node.type == "jsx_text" and text[:1] in (b"\r", b"\n") and not text.strip()
+    return text[:1] in (b"\r", b"\n") and not text.strip()
 
 
 def get_node_text(node: tree_sitter.Node, source: bytes) -> str:
