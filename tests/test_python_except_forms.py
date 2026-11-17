@@ -329,7 +329,7 @@ def test_only_a_bare_broad_name_in_a_tuple_is_broad(tmp_path, type_expr, binding
 
 def test_broad_tuple_with_empty_body_reports_both(tmp_path):
     result = _analyze(tmp_path, "except (ValueError, Exception)", body="pass")
-    assert sorted(f.penalty for f in result.findings) == [BROAD_CATCH_PENALTY, EMPTY_BODY_PENALTY]
+    assert sorted(f.penalty or 0.0 for f in result.findings) == [BROAD_CATCH_PENALTY, EMPTY_BODY_PENALTY]
 
 
 def test_suppressing_broad_tuple_lifts_score_by_broad_penalty(tmp_path):
