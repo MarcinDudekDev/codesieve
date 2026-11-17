@@ -238,3 +238,73 @@ def test_multiline_name_in_a_message_matches_the_lf_twin(tmp_path, style):
         assert "\r" not in finding.message, finding.message
         assert "\r" not in (finding.function or ""), finding.function
     assert all("\r" not in f.name for f in ParsedFile(str(path)).get_functions())
+
+
+# --- one line break at a time ------------------------------------------------
+# Round 2: a comment leaf ends at the CR of its line (the LF sits outside it),
+# and the JSX grammar emits a whitespace-only text leaf only when the break is
+# CRLF. Both made an expression differ from its own copy on an LF line.
+
+_PY_COMMENTED = (
+    "def f(a):\n"
+    "    x = make(a, [\n        1, # note\n        2,\n    ])\n"
+    "    y = make(a, [\n        1, # note\n        2,\n    ])\n"
+    "    z = make(a, [\n        1, # note\n        2,\n    ])\n"
+    "    return x, y, z\n"
+).encode()
+
+_GO_COMMENTED = (
+    "package main\n\nfunc g() {\n"
+    "\tb := foo(1, // c\n\t\t2)\n"
+    "\tc := foo(1, // c\n\t\t2)\n"
+    "\td := foo(1, // c\n\t\t2)\n"
+    "\t_, _, _ = b, c, d\n}\n"
+).encode()
+
+_JSX_CALL = '{i}const {n} = render(\n{i}\t<div className="x">\n{i}\t\t<div className="y"></div>\n{i}\t</div>\n{i});\n'
+_JSX_NESTED = (
+    "function T() {\n"
+    + "".join(_JSX_CALL.format(i="\t", n=n) for n in "abc")
+    + "\tif (a) {\n" + _JSX_CALL.format(i="\t\t", n="d") + "\t\treturn d;\n\t}\n"
+    + "\treturn [a, b, c];\n}\n"
+).encode()
+
+_BREAK_CASES = {
+    "commented.py": (_PY_COMMENTED, "repeated 3×"),
+    "commented.go": (_GO_COMMENTED, "repeated 3×"),
+    "nested.tsx": (_JSX_NESTED, "repeated 4×"),
+    "nested.js": (_JSX_NESTED, "repeated 4×"),
+}
+
+
+def _one_crlf(data: bytes, index: int) -> bytes:
+    """The same file with only its ``index``-th line break written as CRLF."""
+    parts = data.split(b"\n")
+    return b"\n".join(parts[:index + 1]) + b"\r\n" + b"\n".join(parts[index + 1:])
+
+
+@pytest.mark.parametrize("name", sorted(_BREAK_CASES))
+def test_break_case_reference_has_the_repeat(tmp_path, name):
+    data, expected = _BREAK_CASES[name]
+    messages = _dry_messages(_write(tmp_path, "lf", name, data))
+    assert any(expected in m for m in messages), messages
+
+
+@pytest.mark.parametrize("style", sorted(_STYLES))
+@pytest.mark.parametrize("name", sorted(_BREAK_CASES))
+def test_break_case_matches_its_lf_twin(tmp_path, name, style):
+    data, _ = _BREAK_CASES[name]
+    reference = _signature(_write(tmp_path, "lf", name, data))
+    assert _signature(_write(tmp_path, style, name, _STYLES[style](data))) == reference
+
+
+@pytest.mark.parametrize("name", sorted(_BREAK_CASES))
+def test_any_single_crlf_break_matches_the_lf_twin(tmp_path, name):
+    data, _ = _BREAK_CASES[name]
+    reference = _signature(_write(tmp_path, "lf", name, data))
+    breaks = data.count(b"\n")
+    differing = [
+        i for i in range(breaks)
+        if _signature(_write(tmp_path, f"one-{i}", name, _one_crlf(data, i))) != reference
+    ]
+    assert differing == [], f"line breaks that change the scan when written as CRLF: {differing}"
