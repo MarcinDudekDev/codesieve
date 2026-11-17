@@ -308,3 +308,26 @@ def test_any_single_crlf_break_matches_the_lf_twin(tmp_path, name):
         if _signature(_write(tmp_path, f"one-{i}", name, _one_crlf(data, i))) != reference
     ]
     assert differing == [], f"line breaks that change the scan when written as CRLF: {differing}"
+
+
+# --- order of findings that share a line -------------------------------------
+# Round 3: two repeated expressions starting on one line were ordered by their
+# byte length, and a CRLF break inside one of them adds a byte.
+
+_SAME_LINE = (
+    b"function f(aa, b, c, d, e, g) {\n"
+    b"  const u = (aa * 2 + 1) + (b *\n 3 + 5);\n"
+    b"  const v = (c * 2 + 1) - (d * 3 + 5);\n"
+    b"  const w = (e * 2 + 1) * (g * 3 + 5);\n"
+    b"  return [u, v, w];\n"
+    b"}\n"
+)
+
+
+@pytest.mark.parametrize("style", sorted(_STYLES))
+def test_same_line_findings_keep_the_lf_order(tmp_path, style):
+    reference = _dry_messages(_write(tmp_path, "lf", "order.js", _SAME_LINE))
+    assert len(reference) == 2, reference
+    assert "aa * 2 + 1" in reference[0], "left-to-right on the line"
+    actual = _dry_messages(_write(tmp_path, style, "order.js", _STYLES[style](_SAME_LINE)))
+    assert actual == reference
