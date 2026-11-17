@@ -44,7 +44,6 @@ class FunctionInfo:
     node: tree_sitter.Node
     param_count: int
     start_line: int
-    end_line: int
     code_line_count: int
     """Lines excluding the function's own docstring.
 
@@ -154,7 +153,6 @@ class ParsedFile:
             result.append(FunctionInfo(
                 name=name, node=node,
                 param_count=params, start_line=node.start_point[0] + 1,
-                end_line=node.end_point[0] + 1,
                 code_line_count=total_lines - self._docstring_line_count(node),
             ))
         return result

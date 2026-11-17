@@ -87,8 +87,8 @@ def test_cr_only_file_parses_without_errors(tmp_path):
     lf = ParsedFile(str(_write(tmp_path, "lf", "case.py", _BARE.encode())))
     assert not cr.root.has_error
     assert cr.line_count == lf.line_count
-    assert [(f.name, f.start_line, f.end_line) for f in cr.get_functions()] == \
-        [(f.name, f.start_line, f.end_line) for f in lf.get_functions()]
+    assert [(f.name, f.start_line, f.code_line_count) for f in cr.get_functions()] == \
+        [(f.name, f.start_line, f.code_line_count) for f in lf.get_functions()]
 
 
 def test_suppression_marker_is_honoured_on_a_cr_only_file(tmp_path):
