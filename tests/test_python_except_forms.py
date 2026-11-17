@@ -193,3 +193,52 @@ def test_suppressing_bound_broad_catch_lifts_score_by_broad_penalty(tmp_path):
 
     assert eh_score(plain_path) == 10.0 - BROAD_CATCH_PENALTY
     assert eh_score(ignored_path) == 10.0
+
+
+# --- layout must not hide the type: continuations and parentheses ----------
+# Found in verification round 1: a `line_continuation` node or a wrapping
+# parenthesis was taken for the type expression itself.
+
+_CONT = "\\\n        "
+
+
+def test_line_continued_bare_except_is_still_bare(tmp_path):
+    result = _analyze(tmp_path, f"except {_CONT}")
+    assert [f.penalty for f in result.findings] == [BARE_EXCEPT_PENALTY]
+    assert "bare except" in result.findings[0].message
+
+
+@pytest.mark.parametrize("clause", [
+    f"except {_CONT}Exception",
+    f"except {_CONT}Exception as e",
+    f"except Exception {_CONT}as e",
+    f"except* {_CONT}Exception as eg",
+    "except (Exception)",
+    "except (Exception) as e",
+    "except ((Exception)) as e",
+    f"except {_CONT}(Exception) as e",
+])
+def test_broad_catch_survives_continuations_and_parentheses(tmp_path, clause):
+    result = _analyze(tmp_path, clause)
+    assert [f.penalty for f in result.findings] == [BROAD_CATCH_PENALTY], \
+        f"{clause!r}: {_shape(result.findings)}"
+    assert "broad" in result.findings[0].message
+
+
+@pytest.mark.parametrize("clause", [
+    f"except {_CONT}ValueError",
+    f"except {_CONT}ValueError as e",
+    f"except {_CONT}(ValueError, KeyError) as e",
+    "except (ValueError)",
+    "except (ValueError) as e",
+    "except ((os.error)) as e",
+])
+def test_typed_handler_survives_continuations_and_parentheses(tmp_path, clause):
+    result = _analyze(tmp_path, clause)
+    assert result.findings == [], f"{clause!r}: {_shape(result.findings)}"
+
+
+def test_one_element_tuple_of_exception_stays_non_broad(tmp_path):
+    # A tuple is not unwrapped: `(Exception,)` keeps the existing tuple rule.
+    assert _analyze(tmp_path, "except (Exception,) as e").findings == []
+    assert _analyze(tmp_path, "except (Exception,)").findings == []
