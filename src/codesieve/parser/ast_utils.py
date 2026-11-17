@@ -47,8 +47,31 @@ def find_nodes(root: tree_sitter.Node, types: tuple[str, ...]) -> list[tree_sitt
 
 
 def _decode_slice(source: bytes, start: int, end: int) -> str:
-    """Decode a source slice, folding CRLF to LF so compared or printed text reads like the LF twin."""
+    """Decode a source slice, folding CRLF to LF so compared or printed text reads like the LF twin.
+
+    A leaf can end at the CR of its line with the LF sitting just past the cut
+    (Python and Go comment nodes do this), leaving a ``\\r`` with no ``\\n``
+    inside the slice to fold into. The LF twin's leaf ends before the break, so
+    a trailing ``\\r`` whose next source byte is ``\\n`` is dropped with the
+    slice, not folded.
+    """
+    if source[end - 1:end] == b"\r" and source[end:end + 1] == b"\n":
+        end -= 1
     return source[start:end].decode("utf-8", errors="replace").replace("\r\n", "\n")
+
+
+def _is_crlf_only_leaf(node: tree_sitter.Node) -> bool:
+    """True for a leaf the grammar emits only because a line break is CRLF.
+
+    The JS/TSX grammar tokenises a whitespace-only ``jsx_text`` run into a leaf
+    unless the run starts with ``\\n``. A run starting with CR — necessarily the
+    CR of a CRLF pair, since a lone CR never reaches the tree — therefore yields
+    a leaf the LF twin does not have. Runs starting with space or tab exist on
+    both sides, and any run containing real text is kept for its content, so
+    only break-led pure-whitespace ``jsx_text`` leaves are skipped.
+    """
+    text = node.text or b""
+    return node.type == "jsx_text" and text[:1] in (b"\r", b"\n") and not text.strip()
 
 
 def get_node_text(node: tree_sitter.Node, source: bytes) -> str:
@@ -94,8 +117,10 @@ def named_descendant_count(node: tree_sitter.Node) -> int:
     """Count named nodes in a subtree (including the node itself).
 
     Used as a complexity floor so trivial expressions (e.g. `i + 1`) are ignored.
+    Leaves that exist only because of a CRLF break are skipped — the LF twin
+    does not have them.
     """
-    return sum(1 for n in walk_tree(node) if n.is_named)
+    return sum(1 for n in walk_tree(node) if n.is_named and not _is_crlf_only_leaf(n))
 
 
 def normalize_subtree(
@@ -121,6 +146,8 @@ def normalize_subtree(
         called keeps its name while its arguments are still blanked — otherwise
         `foo(a)` and `bar(a)` would normalize alike and read as a repetition.
         """
+        if _is_crlf_only_leaf(n):
+            return ""
         if blank_identifiers and not protected and n.type in identifier_types:
             return "§ID§"
         if not n.children:
