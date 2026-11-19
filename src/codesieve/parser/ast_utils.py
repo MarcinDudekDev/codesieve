@@ -146,24 +146,33 @@ def normalize_subtree(
     ``call_types`` node and are preserved so `round(...)` never collides with `floor(...)`.
     Two expressions that differ only in their variable names normalize to the same string.
     """
-    def serialize(n: tree_sitter.Node, protected: bool) -> str:
-        """Render one node as its normalized form, recursing into children.
-
-        ``protected`` propagates down a call's callee, so the function *being*
-        called keeps its name while its arguments are still blanked — otherwise
-        `foo(a)` and `bar(a)` would normalize alike and read as a repetition.
-        """
-        if _is_crlf_only_leaf(n):
-            return ""
-        if blank_identifiers and not protected and n.type in identifier_types:
-            return "§ID§"
-        if not n.children:
-            return _decode_slice(source, n.start_byte, n.end_byte)
-        callee = n.child_by_field_name("function") if n.type in call_types else None
-        callee_id = callee.id if callee is not None else None
-        inner = "".join(
-            serialize(child, protected or child.id == callee_id) for child in n.children
-        )
-        return f"({n.type}{inner})"
-
-    return serialize(node, protected=False)
+    rendered: dict[int, str] = {}
+    # Walked with an explicit stack, exactly as if this recursed: a long chain of
+    # operators (`a + b + c + …` a few thousand deep) would otherwise exhaust
+    # Python's recursion limit and crash the whole scan on generated code.
+    pending: list[tuple[tree_sitter.Node, bool, bool]] = [(node, False, False)]
+    while pending:
+        current, protected, expanded = pending.pop()
+        if expanded:
+            callee = current.child_by_field_name("function") if current.type in call_types else None
+            callee_id = callee.id if callee is not None else None
+            inner = "".join(rendered.pop(child.id) for child in current.children)
+            rendered[current.id] = f"({current.type}{inner})"
+            continue
+        if _is_crlf_only_leaf(current):
+            rendered[current.id] = ""
+        elif blank_identifiers and not protected and current.type in identifier_types:
+            rendered[current.id] = "§ID§"
+        elif not current.children:
+            rendered[current.id] = _decode_slice(source, current.start_byte, current.end_byte)
+        else:
+            # ``protected`` propagates down a call's callee, so the function
+            # *being* called keeps its name while its arguments are still
+            # blanked — otherwise `foo(a)` and `bar(a)` would normalize alike and
+            # read as a repetition.
+            pending.append((current, protected, True))
+            callee = current.child_by_field_name("function") if current.type in call_types else None
+            callee_id = callee.id if callee is not None else None
+            for child in reversed(current.children):
+                pending.append((child, protected or child.id == callee_id, False))
+    return rendered[node.id]

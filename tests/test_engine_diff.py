@@ -100,3 +100,15 @@ def test_cli_diff_with_no_changes_exits_zero(git_repo):
     result = CliRunner().invoke(main, ["scan", str(root), "--diff", "HEAD"])
     assert result.exit_code == 0, result.output
     assert "No changed files" in result.output
+
+
+def test_scan_with_diff_ref_sees_untracked_files(git_repo):
+    """A brand-new file is not in `git diff REF`, so --diff used to skip exactly the new code."""
+    root, committed, changed = git_repo
+    changed.write_text("y = 1\n")  # back to HEAD, so only the new file differs
+    new_file = root / "brand_new.py"
+    new_file.write_text("z = 1\n")
+    report = scan(root, Config(), diff_ref="HEAD")
+    scanned = {Path(r.path).resolve() for r in report.file_reports}
+    assert new_file.resolve() in scanned
+    assert committed.resolve() not in scanned

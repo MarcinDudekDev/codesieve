@@ -23,8 +23,6 @@ weights:
   GuardClauses: 0.05
   DeprecatedAPI: 0.05
   DRY: 0.15
-  SRP: 0.15
-  Complexity: 0.10
   Comments: 0.10
 
 # Minimum aggregate score (0 = disabled)

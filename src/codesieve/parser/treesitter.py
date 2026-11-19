@@ -303,7 +303,10 @@ class ParsedFile:
     def _count_params_php(self, params_node: tree_sitter.Node) -> int:
         count = 0
         for child in params_node.children:
-            if child.type in ("simple_parameter", "variadic_parameter"):
+            # property_promotion_parameter is the PHP 8 `public int $x` form — a
+            # parameter like any other, so it belongs in the count.
+            if child.type in ("simple_parameter", "variadic_parameter",
+                              "property_promotion_parameter"):
                 count += 1
         return count
 

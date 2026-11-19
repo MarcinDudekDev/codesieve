@@ -155,7 +155,7 @@ def scan_file(filepath: str | Path, config: Config) -> FileReport:
         sieves_to_run = [s for s in sieves_to_run if s.sieve_type == SieveType.DETERMINISTIC]
 
     results = [sieve.analyze(parsed) for sieve in sieves_to_run]
-    results = apply_suppressions(results, parsed)
+    results = apply_suppressions(results, parsed, known_names=SIEVE_REGISTRY)
 
     agg = weighted_average(results, config.weights)
     grade = score_to_grade(agg)
@@ -197,6 +197,9 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
     pathspec and silently narrow the diff to that path. The trailing ``--``
     then pins the boundary so the ref can never be taken as a path.
 
+    Untracked, non-ignored files are included: a brand-new file is exactly the
+    code that should be reviewed, and ``git diff REF`` never lists it.
+
     ``-z`` output is NUL-separated and unquoted — without it git C-quotes
     non-ASCII names (``"weird\\303\\277.py"``) and the changed file silently
     drops out of the scan. ``surrogateescape`` keeps undecodable names from
@@ -228,9 +231,19 @@ def _collect_diff_files(path: Path, ref: str) -> set[Path] | None:
             text=True, errors="surrogateescape",
             stderr=subprocess.DEVNULL,
         )
+        # New files are not in `git diff REF` yet, so without this an untracked
+        # (non-ignored) file was invisible to --diff and its findings silently
+        # never gated anything. --exclude-standard keeps .gitignore honoured.
+        untracked_output = subprocess.check_output(  # noqa: S603
+            [git, "ls-files", "--others", "--exclude-standard", "-z"],
+            cwd=root,
+            text=True, errors="surrogateescape",
+            stderr=subprocess.DEVNULL,
+        )
     except (subprocess.CalledProcessError, OSError):
         return None
-    return {Path(root) / name for name in diff_output.split("\0") if name}
+    names = diff_output.split("\0") + untracked_output.split("\0")
+    return {Path(root) / name for name in names if name}
 
 
 def _resolve_corpus_standard(files: list[Path], config: Config) -> str:

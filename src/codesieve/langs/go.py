@@ -196,9 +196,12 @@ class GoCommentRules:
 
         Rarely fires: Go interface method elements are `method_elem`/`method_spec`
         and are absent from GO.function_types, so they never reach a sieve. What
-        remains is the assembly-implemented `func f() int` with no Go body.
+        remains is the assembly-implemented `func f() int` with no Go body. A
+        documented stub answers False: it stays in the coverage denominator and
+        counts as documented, as ``CommentRules.is_declaration_only`` requires.
         """
-        return func_node.child_by_field_name("body") is None
+        return (func_node.child_by_field_name("body") is None
+                and not self.has_docstring(func_node, source))
 
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         prev = func_node.prev_named_sibling

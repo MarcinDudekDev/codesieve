@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import replace
+from typing import Iterable
 
 from codesieve.models import SieveResult
 from codesieve.parser import ast_utils
@@ -46,6 +47,11 @@ def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
 
     Only real comment nodes are inspected, so markers inside string literals are
     ignored. Names are lowercased here; callers compare case-insensitively.
+
+    A marker inside a multi-line comment (``/* … codesieve: ignore … */``) is
+    anchored on the line the marker itself sits on, the same line NoSilencing
+    reports it on — an ignore comment must silence the line it names, not the
+    line where the block comment happens to open.
     """
     suppressed: dict[int, frozenset[str] | None] = {}
     for node in parsed.get_comments():
@@ -53,7 +59,7 @@ def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
         match = SUPPRESS_RE.search(text)
         if match is None:
             continue
-        lineno = node.start_point[0] + 1
+        lineno = node.start_point[0] + 1 + text.count("\n", 0, match.start())
         raw_names = match.group(1)
         if raw_names is None or not raw_names.strip():
             suppressed[lineno] = _ALL  # bare ignore -> silence everything on this line
@@ -122,31 +128,54 @@ def _recompute_score(result: SieveResult, kept: list, suppressed: list) -> float
     return result.score  # non-additive sieve: suppression must not alter the score
 
 
-def apply_suppressions(results: list[SieveResult], parsed: ParsedFile) -> list[SieveResult]:
-    """Drop findings matched by inline ignore comments and repair each sieve's score."""
+def _known_sieve_names(results: list[SieveResult],
+                       known_names: Iterable[str] | None) -> set[str]:
+    """Lowercased sieve names a marker may legitimately use.
+
+    That is the ones this file ran, the ones that can never be silenced, and —
+    when the caller passes them — every sieve the tool knows, so a marker naming
+    a sieve that simply was not selected is not mistaken for a typo.
+    """
+    known = {r.name.lower() for r in results} | {name.lower() for name in UNSUPPRESSIBLE}
+    if known_names is not None:
+        known |= {name.lower() for name in known_names}
+    return known
+
+
+def _suppress_result(result: SieveResult,
+                     suppressed: dict[int, frozenset[str] | None]) -> SieveResult:
+    """Return ``result`` with its suppressed findings dropped, or unchanged if none matched."""
+    kept, dropped = [], []
+    for finding in result.findings:
+        (dropped if _is_suppressed(finding.line, result.name, suppressed) else kept).append(finding)
+
+    if not dropped:
+        return result
+
+    note = f"{len(dropped)} finding(s) suppressed inline"
+    summary = note if not kept else f"{result.summary} ({note})"
+    return replace(result, findings=kept,
+                   score=_recompute_score(result, kept, dropped), summary=summary)
+
+
+def apply_suppressions(results: list[SieveResult], parsed: ParsedFile,
+                       known_names: Iterable[str] | None = None) -> list[SieveResult]:
+    """Drop findings matched by inline ignore comments and repair each sieve's score.
+
+    ``known_names`` is every sieve the tool knows, not just the ones this file
+    ran: with ``--sieves Naming`` a correct ``ignore[KISS]`` used to be warned
+    about as a typo, because KISS was absent from this file's results.
+    """
     suppressed = parse_suppressions(parsed)
     if not suppressed:
         return results
 
-    known = {r.name.lower() for r in results} | {name.lower() for name in UNSUPPRESSIBLE}
-    _warn_unknown_names(suppressed, known, parsed.filepath)
+    _warn_unknown_names(suppressed, _known_sieve_names(results, known_names), parsed.filepath)
 
     updated: list[SieveResult] = []
     for result in results:
         if result.skipped or not result.findings or result.name in UNSUPPRESSIBLE:
             updated.append(result)
-            continue
-
-        kept, dropped = [], []
-        for finding in result.findings:
-            (dropped if _is_suppressed(finding.line, result.name, suppressed) else kept).append(finding)
-
-        if not dropped:
-            updated.append(result)
-            continue
-
-        new_score = _recompute_score(result, kept, dropped)
-        note = f"{len(dropped)} finding(s) suppressed inline"
-        summary = note if not kept else f"{result.summary} ({note})"
-        updated.append(replace(result, findings=kept, score=new_score, summary=summary))
+        else:
+            updated.append(_suppress_result(result, suppressed))
     return updated

@@ -264,3 +264,28 @@ def test_engine_self_annotation_suppresses_its_own_broad_catch():
     eh = _sieve(report, "ErrorHandling")
     assert all("broad" not in f.message.lower() for f in eh.findings), \
         "engine.py's intentional broad catch should be suppressed"
+
+
+# ---- marker line and known-name set (warden cycle, 2026-11-19) ----------------------------
+
+def test_block_comment_marker_is_anchored_on_the_marker_line(tmp_path):
+    """A marker on line 2 of a `/* */` block silences line 2, not the line the block opens."""
+    source = "/* lint notes\n   codesieve: ignore[Naming]\n*/\nfunction f() { return 1; }\n"
+    assert parse_suppressions(_parsed(tmp_path, source, "b.js")) == {2: frozenset({"naming"})}
+
+
+def test_sieve_outside_this_run_is_not_reported_as_a_typo(tmp_path, capsys):
+    """`--sieves Naming` used to warn about a correct `ignore[KISS]`: KISS simply did not run."""
+    parsed = _parsed(tmp_path, "def f():\n    x = 1  # codesieve: ignore[KISS]\n    return x\n", "c.py")
+    config = Config()
+    config.sieves = ["Naming"]
+    scan_file(parsed.filepath, config)
+    assert "kiss" not in capsys.readouterr().err.lower()
+
+
+def test_misspelled_sieve_name_is_still_reported(tmp_path, capsys):
+    parsed = _parsed(tmp_path, "def f():\n    x = 1  # codesieve: ignore[Kisss]\n    return x\n", "u.py")
+    config = Config()
+    config.sieves = ["Naming"]
+    scan_file(parsed.filepath, config)
+    assert "kisss" in capsys.readouterr().err.lower()

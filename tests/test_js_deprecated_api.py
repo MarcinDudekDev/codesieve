@@ -65,3 +65,17 @@ def test_js_let_const_not_flagged():
         assert len(result.findings) == 0
     finally:
         os.unlink(path)
+
+
+def test_js_with_statement_is_deprecated_not_removed():
+    """`with` is not a removed API: the summary used to call it one because it is an error."""
+    code = "function f(o) { with (o) { return 1; } }\n"
+    with tempfile.NamedTemporaryFile(suffix=".js", mode="w", delete=False) as f:
+        f.write(code)
+        path = f.name
+    try:
+        parsed = ParsedFile(path)
+        result = DeprecatedAPISieve().analyze(parsed)
+    finally:
+        os.unlink(path)
+    assert result.summary == "1 deprecated pattern(s) found", result.summary

@@ -2,7 +2,7 @@
 
 **Deterministic code quality grading for AI coding workflows.**
 
-CodeSieve runs 10 principle-based sieves against your Python, PHP, JavaScript, TypeScript, and Go code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
+CodeSieve runs 11 principle-based sieves against your Python, PHP, JavaScript, TypeScript, and Go code and produces a 1-10 score per principle, with an aggregate letter grade (A-F). No LLM calls, no flaky heuristics -- just fast, reproducible static analysis powered by tree-sitter.
 
 Built for the AI-assisted coding loop: let your agent write code, then grade it automatically before committing. Works as a CLI tool, CI gate, or quality feedback signal for any AI coding agent.
 
@@ -186,7 +186,7 @@ fail_under: 7.0
 standard: wordpress
 ```
 
-Adjust weights to match what matters most for your project. Sieves with weight `0` are skipped.
+Adjust weights to match what matters most for your project. A sieve set to weight `0` is not graded and is left out of the aggregate; a config where *every* selected sieve weighs `0` is rejected (exit 2) rather than grading nothing.
 
 Invalid values are a config error (exit 2), never a silent default: `sieves` must be a non-empty list of names, every weight must be a finite number `>= 0`, and `fail_under` must be a finite number `>= 0` (`0` disables the gate). A config file that is not UTF-8, not valid YAML, or not a regular file fails the same way.
 
@@ -226,6 +226,8 @@ codesieve scan . --diff main
 ```
 
 If git cannot produce the diff — the target is not in a repository, or the ref is unknown — the scan exits 2 rather than silently grading everything.
+
+Untracked, non-ignored files count as changed: `git diff REF` alone never lists them, and a brand-new file is exactly the code worth reviewing.
 
 When nothing changed since REF, terminal output prints `No changed files since REF.` and exits 0; with `--format json` or `sarif` it instead emits the normal empty report (`"files": []` / `results: []`) so stdout stays machine-readable.
 

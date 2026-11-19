@@ -220,3 +220,22 @@ def test_php_interface_methods_are_not_counted(tmp_path):
     assert not result.skipped
     assert result.summary == "No documentable functions found"
     assert result.findings == []
+
+
+def test_documented_abstract_stub_stays_in_the_denominator(tmp_path):
+    """A documented stub is still a function to cover, not a free pass.
+
+    Excluding it let one documented abstract method cover the whole file, so the
+    undocumented concrete method next to it went unreported.
+    """
+    source = (
+        "<?php\ndeclare(strict_types=1);\n"
+        "abstract class Base {\n"
+        "    /** Return the size. */\n"
+        "    abstract public function size(): int;\n"
+        "    public function concrete(): int { return 1; }\n"
+        "}\n"
+    )
+    result = _scan_comments(tmp_path, "Base.php", source)
+    assert result.summary == "50% docstring coverage (1/2 functions)", result.summary
+    assert [f.function for f in result.findings] == ["concrete"]

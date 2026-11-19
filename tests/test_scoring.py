@@ -66,3 +66,14 @@ def test_weighted_average_all_skipped():
         _make_result("Nesting", 0.0, skipped=True),
     ]
     assert weighted_average(results) == 0.0
+
+
+def test_zero_weight_sieve_is_left_out_of_the_average():
+    """Weight 0 means "not graded", so that result must not drag the average down."""
+    results = [_make_result("KISS", 10.0), _make_result("Naming", 2.0)]
+    assert weighted_average(results, {"KISS": 0.0, "Naming": 1.0}) == 2.0
+
+
+def test_all_zero_weights_grades_nothing_instead_of_inventing_a_ten():
+    """The equal-weights fallback fabricated 10.0/A for a file nobody graded."""
+    assert weighted_average([_make_result("KISS", 10.0)], {"KISS": 0.0}) == 0.0

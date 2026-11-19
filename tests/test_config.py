@@ -3,6 +3,8 @@
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from codesieve.config import Config, DEFAULTS, generate_default_config
 
 
@@ -103,3 +105,17 @@ def test_exclude_normalized_values_scan_without_crash(tmp_path):
     (tmp_path / "m.py").write_text("x = 1\n")
     config = _load(tmp_path, "exclude: tests\n")
     assert [f.name for f in _collect_files(tmp_path, config.exclude)] == ["m.py"]
+
+
+def test_every_selected_sieve_at_weight_zero_is_refused(tmp_path):
+    from codesieve.config import ConfigError
+
+    with pytest.raises(ConfigError, match="weight 0"):
+        _load(tmp_path, "sieves: [KISS]\nweights:\n  KISS: 0\n")
+
+
+def test_retired_weight_names_are_still_accepted(tmp_path):
+    """A `.codesieve.yml` from an older `codesieve init` must keep loading."""
+    config = _load(tmp_path, "weights:\n  KISS: 0.2\n  SRP: 0.15\n  Complexity: 0.1\n")
+    assert config.weights["KISS"] == 0.2
+    assert "SRP" not in DEFAULTS["weights"]

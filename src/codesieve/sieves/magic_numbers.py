@@ -28,7 +28,13 @@ def _parse_numeric(node: tree_sitter.Node, source: bytes,
         if node.type in ("integer", "int_literal"):
             value = int(clean, 0)
         elif node.type in ("number", "float_literal"):
-            value = float(clean)
+            # JS and TS lex hex, octal and binary literals as `number`, which
+            # float() rejects; int(x, 0) reads the prefix. Legacy `052` survives
+            # float() as 52, so this fallback only ever sees the 0x/0o/0b forms.
+            try:
+                value = float(clean)
+            except ValueError:
+                value = int(clean, 0)
         else:
             value = float(clean)
     except (ValueError, OverflowError):

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
+from urllib.parse import quote
 
 from rich.console import Console
 from rich.table import Table
@@ -33,6 +35,23 @@ _SEVERITY_COLORS = {"error": "red", "warning": "yellow", "info": "dim"}
 CONFIG_LOCK_RULE = "config-lock"
 CONFIG_LOCK_MESSAGE = ("config changed in this diff; "
                        "set CODESIEVE_ALLOW_CONFIG_CHANGE=1 to allow it")
+
+
+def _sarif_uri(path: str) -> str:
+    """Render a filesystem path as a SARIF ``artifactLocation.uri``.
+
+    SARIF resolves ``uri`` as a URI reference, so a raw absolute path is wrong
+    twice over: an unencoded space breaks the reference, and a path outside the
+    repository root cannot be matched to a file at all. The path is made relative
+    to the working directory when it lives under it, spelled with POSIX
+    separators, and percent-encoded.
+    """
+    candidate = Path(path)
+    try:
+        relative = candidate.resolve().relative_to(Path.cwd().resolve())
+    except (OSError, ValueError):
+        return quote(candidate.as_posix(), safe="/")
+    return quote(relative.as_posix(), safe="/")
 
 
 def render_file_report(report: FileReport, console: Console | None = None) -> None:
@@ -196,7 +215,7 @@ def report_to_sarif(report: ScanReport) -> str:
                 if finding.line:
                     result_entry["locations"] = [{
                         "physicalLocation": {
-                            "artifactLocation": {"uri": fr.path},
+                            "artifactLocation": {"uri": _sarif_uri(fr.path)},
                             "region": {"startLine": finding.line},
                         }
                     }]
@@ -213,7 +232,7 @@ def report_to_sarif(report: ScanReport) -> str:
                 "ruleId": CONFIG_LOCK_RULE,
                 "level": "error",
                 "message": {"text": CONFIG_LOCK_MESSAGE},
-                "locations": [{"physicalLocation": {"artifactLocation": {"uri": locked}}}],
+                "locations": [{"physicalLocation": {"artifactLocation": {"uri": _sarif_uri(locked)}}}],
             })
 
     sarif = {

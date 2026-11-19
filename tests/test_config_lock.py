@@ -255,7 +255,7 @@ def test_unknown_key_via_explicit_config_and_config_from_target(repo: Path, tmp_
 
 def test_every_documented_key_is_accepted(repo: Path):
     (repo / ".codesieve.yml").write_text(
-        "sieves:\n  - KISS\nweights:\n  KISS: 0.2\n  SRP: 0.15\n  Complexity: 0.1\n"
+        "sieves:\n  - KISS\nweights:\n  KISS: 0.2\n  Naming: 0.15\n  DRY: 0.1\n"
         "fail_under: 0\nstandard: psr\ndeterministic: false\nformat: terminal\nexclude:\n  - skipme\n"
     )
     assert _scan(str(repo)).exit_code == 0

@@ -26,8 +26,6 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "GuardClauses": 0.05,
     "DeprecatedAPI": 0.05,
     "DRY": 0.15,
-    "SRP": 0.15,
-    "Complexity": 0.10,
     "Comments": 0.10,
     "NoSilencing": 0.05,
 }
@@ -52,15 +50,15 @@ def weighted_average(results: list[SieveResult], weights: dict[str, float] | Non
         return 0.0
 
     w = weights or DEFAULT_WEIGHTS
-    active_results = [r for r in results if not r.skipped]
+    # A weight of 0 means "not graded" (README: weight-0 sieves are skipped), so
+    # such a result stays out of the average entirely. Letting it in through the
+    # equal-weights fallback scored a file 10.0/A when every selected sieve —
+    # empty code, no findings — happened to weigh 0.
+    active_results = [r for r in results if not r.skipped and w.get(r.name, 0.0) > 0]
     if not active_results:
         return 0.0
 
     # Redistribute skipped weights proportionally
-    total_active_weight = sum(w.get(r.name, 0.0) for r in active_results)
-    if total_active_weight == 0:
-        # Equal weights fallback
-        return round(sum(r.score for r in active_results) / len(active_results), 1)
-
-    score = sum(r.score * (w.get(r.name, 0.0) / total_active_weight) for r in active_results)
+    total_active_weight = sum(w[r.name] for r in active_results)
+    score = sum(r.score * (w[r.name] / total_active_weight) for r in active_results)
     return normalize_score(score)

@@ -56,3 +56,28 @@ def test_js_default_param_not_magic():
         assert result.score == 10.0, f"Default params should not be magic, got {result.score}"
     finally:
         os.unlink(path)
+
+
+def test_hex_binary_and_octal_literals_are_magic_numbers():
+    """`int()` refused the 0x/0b/0o prefixes, so those literals were silently skipped."""
+    code = (
+        "function f(n) {\n"
+        "  const a = n + 0xff00;\n"
+        "  const b = a + 0b1010;\n"
+        "  const c = b + 0o17;\n"
+        "  return c + 0x1;\n"
+        "}\n"
+    )
+    with tempfile.NamedTemporaryFile(suffix='.js', mode='w', delete=False) as f:
+        f.write(code)
+        path = f.name
+    try:
+        parsed = ParsedFile(path)
+        result = MagicNumbersSieve().analyze(parsed)
+    finally:
+        os.unlink(path)
+    messages = [f.message for f in result.findings]
+    assert any("0xff00" in m for m in messages), messages
+    assert any("0b1010" in m for m in messages), messages
+    assert any("0o17" in m for m in messages), messages
+    assert len(messages) == 3, messages  # 0x1 stays under the small-number threshold

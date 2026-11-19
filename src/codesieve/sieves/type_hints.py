@@ -6,7 +6,7 @@ from codesieve.langs import get_lang_pack
 from codesieve.langs.protocols import TypeHintRules
 from codesieve.models import Finding, SieveResult
 from codesieve.parser.treesitter import ParsedFile, FunctionInfo
-from codesieve.scoring import SCORE_MIN, SCORE_RANGE
+from codesieve.scoring import SCORE_MAX, SCORE_MIN, SCORE_RANGE
 from codesieve.sieves.base import BaseSieve
 
 
@@ -54,8 +54,17 @@ class TypeHintsSieve(BaseSieve):
             return self.skip(reason)
 
         functions = parsed.get_functions()
+        extra_penalty, extra_note, extra_findings = rules.check_extras(parsed)
+
         if not functions:
-            return self.perfect("No functions found")
+            # A file-level requirement (PHP's missing `declare(strict_types=1)`)
+            # is about the file, not its functions: a functions-less PHP file used
+            # to score a perfect 10.0 while the same file with one function was
+            # charged for it.
+            if not extra_penalty:
+                return self.perfect("No functions found")
+            return self.result(SCORE_MAX - extra_penalty,
+                               f"no functions found{extra_note}", extra_findings)
 
         total_params, annotated_params, annotated_returns, findings = _check_functions(
             functions, parsed.source, rules,
@@ -66,7 +75,6 @@ class TypeHintsSieve(BaseSieve):
         coverage = (annotated_params + annotated_returns) / denominator if denominator else 1.0
         score = SCORE_MIN + SCORE_RANGE * coverage
 
-        extra_penalty, extra_note, extra_findings = rules.check_extras(parsed)
         if extra_penalty:
             score -= extra_penalty
             findings[:0] = extra_findings

@@ -146,3 +146,10 @@ function report($a, $b, $c) {
     repeated = [f for f in result.findings if "repeated" in f.message]
     assert len(repeated) == 1
     assert "repeated 3×" in repeated[0].message
+
+
+def test_very_long_expression_chain_does_not_blow_the_stack():
+    """`normalize_subtree` was recursive: a 5000-term chain crashed the whole scan."""
+    code = "def f():\n    return " + " + ".join(["1"] * 5000) + "\n"
+    result = _analyze(code)
+    assert result.score >= 1.0

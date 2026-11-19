@@ -53,7 +53,8 @@ PYTHON = LanguageMap(
 PHP = LanguageMap(
     function_types=("function_definition", "method_declaration", "anonymous_function", "arrow_function"),
     class_types=("class_declaration",),
-    parameter_types=("simple_parameter", "variadic_parameter"),
+    parameter_types=("simple_parameter", "variadic_parameter",
+                     "property_promotion_parameter"),
     branch_types=(
         "if_statement", "else_if_clause", "for_statement", "foreach_statement",
         "while_statement", "do_statement", "catch_clause", "case_statement",

@@ -66,3 +66,15 @@ def test_specific_mysql_detection():
         assert all("removed" in m for m in names)
     finally:
         os.unlink(path)
+
+
+def test_removed_api_is_summarised_as_removed():
+    code = "<?php\nmysql_query('SELECT 1');\n"
+    with tempfile.NamedTemporaryFile(suffix=".php", mode="w", delete=False) as f:
+        f.write(code)
+        path = f.name
+    try:
+        result = DeprecatedAPISieve().analyze(ParsedFile(path))
+    finally:
+        os.unlink(path)
+    assert result.summary == "1 removed pattern(s) found", result.summary

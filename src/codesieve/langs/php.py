@@ -39,7 +39,7 @@ class PHPMagicNumberRules:
     def is_default_param(self, node: tree_sitter.Node) -> bool:
         parent = node.parent
         while parent:
-            if parent.type in ("simple_parameter", "variadic_parameter"):
+            if parent.type in _PHP_PARAM_TYPES:
                 return True
             if parent.type in ("function_definition", "method_declaration",
                                "anonymous_function", "class_declaration"):
@@ -72,7 +72,10 @@ class PHPMagicNumberRules:
         )
 
 
-_PHP_PARAM_TYPES = ("simple_parameter", "variadic_parameter")
+# `property_promotion_parameter` is the PHP 8 promoted-constructor form
+# (`public readonly int $x`): a real parameter that carries a type and a name, so
+# typing, naming and magic-number rules must see it like any other.
+_PHP_PARAM_TYPES = ("simple_parameter", "variadic_parameter", "property_promotion_parameter")
 _STRICT_TYPES_PENALTY = 1.5
 
 
@@ -131,9 +134,9 @@ class PHPTypeHintRules:
             if child.child_by_field_name("type"):
                 annotated += 1
             else:
-                prefix = "..." if child.type == "variadic_parameter" else ""
+                display = f"...${name}" if child.type == "variadic_parameter" else f"${name}"
                 findings.append(Finding(
-                    message=f"parameter '${prefix}{name}' in {func.name}() missing type declaration",
+                    message=f"parameter '{display}' in {func.name}() missing type declaration",
                     line=func.start_line, function=func.name, severity="info",
                 ))
 
@@ -223,7 +226,7 @@ class PHPDeprecatedAPIRules:
         return ast_utils.get_node_text(func_name_node, source)
 
 
-_PHP_NAMING_PARAM_NODE_TYPES = ("simple_parameter", "variadic_parameter")
+_PHP_NAMING_PARAM_NODE_TYPES = _PHP_PARAM_TYPES
 
 
 def _extract_php_var_name(left: tree_sitter.Node, source: bytes) -> str | None:

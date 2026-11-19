@@ -239,8 +239,13 @@ class JSCommentRules:
         form, and TypeScript's `method_signature` / `function_signature` are
         absent from TYPESCRIPT.function_types, so TS interface and ambient
         declarations never reach any sieve to begin with.
+
+        A documented stub is *not* declaration-only: it stays in the coverage
+        denominator and counts as documented, which is the contract
+        ``CommentRules.is_declaration_only`` states.
         """
-        return func_node.child_by_field_name("body") is None
+        return (func_node.child_by_field_name("body") is None
+                and not self.has_docstring(func_node, source))
 
     def has_docstring(self, func_node: tree_sitter.Node, source: bytes) -> bool:
         prev = func_node.prev_named_sibling

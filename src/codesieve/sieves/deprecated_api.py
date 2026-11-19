@@ -25,9 +25,14 @@ def _make_finding(func_name: str, entry: tuple[str, str, str], line: int) -> tup
 
 
 def _build_summary(findings: list[Finding]) -> str:
-    """Summarise deprecated API findings."""
-    removed = sum(1 for f in findings if f.severity == "error")
-    deprecated = sum(1 for f in findings if f.severity == "warning")
+    """Summarise deprecated API findings.
+
+    Removal is identified by its penalty, not by ``severity == "error"``: an
+    extra pattern can be a hard error (`with` in strict mode) without the API
+    having been removed, and calling that "removed" misreports the finding.
+    """
+    removed = sum(1 for f in findings if f.penalty == REMOVED_PENALTY)
+    deprecated = len(findings) - removed
     parts = []
     if removed:
         parts.append(f"{removed} removed")

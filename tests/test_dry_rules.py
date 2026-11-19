@@ -82,3 +82,22 @@ def test_python_byte_math_not_flagged_by_php_rules():
     """PHP/WP rules are language-gated; identical Python math gets no stdlib hint."""
     code = "def f(size):\n    return round(size / (1024 * 1024), 2)\n"
     assert _hints(_analyze(code, ".py")) == []
+
+
+# ---- byte-conversion operator (warden cycle, 2026-11-19) ----------------------------------
+def test_php_mib_ladder_alone_is_not_a_byte_conversion():
+    """`1024 * 1024 * $v` scales bytes up; only a division converts down to MB."""
+    code = "<?php\nfunction f($v) { return 1024 * 1024 * $v; }\n"
+    assert _hints(_analyze(code, ".php")) == []
+
+
+def test_php_division_by_mib_ladder_is_a_byte_conversion():
+    code = "<?php\nfunction f($v) { return $v / (1024 * 1024); }\n"
+    assert len(_hints(_analyze(code, ".php"))) == 1
+
+
+def test_long_constant_ladder_does_not_blow_the_stack():
+    """The walk over a 3000-factor ladder was recursive, so a real file could crash."""
+    ladder = " * ".join(["1024"] * 3000)
+    code = f"<?php\nfunction f($v) {{ return $v / ({ladder}); }}\n"
+    assert len(_hints(_analyze(code, ".php"))) == 1

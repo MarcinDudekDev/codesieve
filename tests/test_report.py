@@ -80,3 +80,17 @@ def test_sarif_findings_have_locations():
     assert "artifactLocation" in loc
     assert "region" in loc
     assert "startLine" in loc["region"]
+
+
+def test_sarif_uri_is_relative_and_percent_encoded(tmp_path, monkeypatch):
+    """A raw absolute path is not a usable SARIF reference: unencoded space, outside the root."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "spaced file.py").write_text("def g():\n    x = 3.14159\n    return x\n")
+    config = Config()
+    config.sieves = ["MagicNumbers"]
+    data = json.loads(report_to_sarif(scan(".", config)))
+    uris = [
+        r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        for r in data["runs"][0]["results"] if "locations" in r
+    ]
+    assert uris == ["spaced%20file.py"]

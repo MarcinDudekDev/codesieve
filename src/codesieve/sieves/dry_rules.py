@@ -42,20 +42,28 @@ def _is_1024_product(node: tree_sitter.Node) -> tuple[bool, int]:
     """Return (is-pure-1024-multiplication, count-of-1024-factors) for a subtree.
 
     Recognizes `1024`, `1024 * 1024`, `1024 * 1024 * 1024`, etc. (any parenthesization).
+    Walked with an explicit stack: a machine-generated ladder of hundreds of
+    `1024 *` factors would overflow a recursive walk.
     """
-    node = _unwrap(node)
-    if node.type == "integer":
-        return (node.text == b"1024", 1 if node.text == b"1024" else 0)
-    if node.type == "binary_expression":
-        op = node.child_by_field_name("operator")
-        left = node.child_by_field_name("left")
-        right = node.child_by_field_name("right")
+    total = 0
+    pending = [_unwrap(node)]
+    while pending:
+        current = _unwrap(pending.pop())
+        if current.type == "integer":
+            if current.text != b"1024":
+                return (False, 0)
+            total += 1
+            continue
+        if current.type != "binary_expression":
+            return (False, 0)
+        op = current.child_by_field_name("operator")
+        left = current.child_by_field_name("left")
+        right = current.child_by_field_name("right")
         if op is None or op.text != b"*" or left is None or right is None:
             return (False, 0)
-        lok, ln = _is_1024_product(left)
-        rok, rn = _is_1024_product(right)
-        return (lok and rok, ln + rn)
-    return (False, 0)
+        pending.append(left)
+        pending.append(right)
+    return (True, total)
 
 
 def _is_byte_unit_constant(node: tree_sitter.Node) -> bool:
@@ -95,13 +103,15 @@ def _php_size_format(node: tree_sitter.Node, parsed: ParsedFile) -> Suggestion |
     if node.type != "binary_expression":
         return None
     op = node.child_by_field_name("operator")
-    if op is None or op.text not in (b"/", b"*"):
+    # Division only, and the byte unit on the right: `1024 * 1024 * $v` is a
+    # multiplication *up* to a byte count, which size_format() cannot express.
+    if op is None or op.text != b"/":
         return None
     left = node.child_by_field_name("left")
     right = node.child_by_field_name("right")
     if left is None or right is None:
         return None
-    if not (_is_byte_unit_constant(left) or _is_byte_unit_constant(right)):
+    if not _is_byte_unit_constant(right):
         return None
     return Suggestion(
         rule="php-size-format",
