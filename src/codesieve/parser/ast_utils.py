@@ -13,6 +13,11 @@ FUNCTION_BOUNDARY_TYPES = (
     # JS/TS-specific
     "function_declaration", "method_definition", "generator_function_declaration",
     "function_expression",
+    # Go-specific. A closure is a function in its own right — it is in the Go
+    # language map's function_types, so the sieves grade it separately — and
+    # without it here a walk of the enclosing function descends into the closure
+    # too, counting every name, branch and literal inside it twice.
+    "func_literal",
 )
 
 

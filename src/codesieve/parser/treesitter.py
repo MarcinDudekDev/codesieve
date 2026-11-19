@@ -69,6 +69,34 @@ class ClassInfo:
 _HEREDOC_BODY_TYPES = ("heredoc", "heredoc_body", "nowdoc", "nowdoc_body")
 
 
+class SourceParseError(ValueError):
+    """Raised when tree-sitter could not parse the file.
+
+    A tree carrying ERROR or MISSING nodes is not a smaller version of the file.
+    The sieves would grade whatever fragments survived, and a file whose body
+    failed to parse looks like a file with no functions at all — the best score
+    Comments, TypeHints and Naming can give. Refusing to grade is the only
+    honest answer, and it rides the crash path: the engine records it on
+    ``ScanReport.errors`` and the CLI exits 2.
+    """
+
+
+def _first_error_line(root: tree_sitter.Node) -> int | None:
+    """1-based line of the leftmost ERROR or MISSING node, or None if the tree is clean.
+
+    MISSING counts as much as ERROR: tree-sitter repairs a truncated construct by
+    inserting a zero-width node of the type it wanted, and that sets
+    ``has_error`` on the root just the same.
+    """
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "ERROR" or node.is_missing:
+            return node.start_point[0] + 1
+        stack.extend(reversed(node.children))
+    return None
+
+
 def _normalize_lone_cr(source: bytes) -> bytes:
     """Turn classic-Mac CR line breaks into LF so tree-sitter sees the rows.
 
@@ -112,6 +140,12 @@ class ParsedFile:
             parser = PARSERS[self.language]
         self.tree: tree_sitter.Tree = parser.parse(self.source)
         self.root: tree_sitter.Node = self.tree.root_node
+        if self.root.has_error:
+            line = _first_error_line(self.root)
+            where = f"syntax error on line {line}" if line else "syntax error"
+            raise SourceParseError(
+                f"{where}: the file does not parse, so it cannot be graded"
+            )
         self.line_count: int = len(self.source_text.splitlines())
         self.standard: str = standards.resolve(
             standard, self.language, filepath, self.source_text, self.callable_names(),

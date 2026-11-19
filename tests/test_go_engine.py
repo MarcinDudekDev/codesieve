@@ -85,6 +85,31 @@ def test_go_comments_good_coverage():
     assert comments.score == 10.0
 
 
+def test_go_closure_is_graded_once(tmp_path):
+    """A closure is its own function, so its parent must not walk into it.
+
+    ``func_literal`` was missing from the scope walk's boundary types, so every
+    name, branch and literal inside a closure was counted once for the closure
+    and again for the function containing it.
+    """
+    path = tmp_path / "closure.go"
+    path.write_text(
+        "package main\n\n"
+        "func outer(x int) int {\n"
+        "\tf := func() int {\n"
+        "\t\tbad_name := 1\n"
+        "\t\treturn bad_name\n"
+        "\t}\n"
+        "\treturn f()\n"
+        "}\n"
+    )
+    naming = next(
+        r for r in scan_file(path, Config()).sieve_results if r.name == "Naming"
+    )
+    assert len(naming.findings) == 1
+    assert naming.summary == "1 violations in 4 names (25%)"
+
+
 def test_scan_mixed_directory_includes_go():
     config = Config()
     fixtures_root = Path(__file__).parent / "fixtures"

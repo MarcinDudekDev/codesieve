@@ -243,7 +243,7 @@ The whole-file score is still computed and shown, but in this mode only findings
 |------|---------|
 | 0 | The scan ran and passed — aggregate score at or above `--fail-under`; under `--new-only`, no new findings (or no changed files) |
 | 1 | The scan ran and the code failed the gate — aggregate below `--fail-under`; under `--new-only`, at least one finding sits on an added line |
-| 2 | The tool could not do what was asked — missing or invalid config, unknown sieve, a diff git cannot produce, or a file that crashed mid-scan. Never a traceback, never reported as a pass |
+| 2 | The tool could not do what was asked — missing or invalid config, unknown sieve, a diff git cannot produce, a file that crashed mid-scan, or a file that does not parse. Never a traceback, never reported as a pass |
 
 `--new-only` without `--diff` is also exit 2, as is a nonsensical `--fail-under` (NaN, infinite, or negative) or an empty `--sieves`. JSON output gains `new_only`, `base` and `new_finding_count` keys plus a `new_findings` list per file; SARIF emits only the new findings. Renames and copies are diffed against their pre-image, so a pure rename adds no lines — only content edited since the merge-base can carry new findings.
 

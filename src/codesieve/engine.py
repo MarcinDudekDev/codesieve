@@ -264,9 +264,10 @@ def scan(path: str | Path, config: Config, diff_ref: str | None = None,
     raises DiffScopeError — for plain ``--diff`` too, there is no full-scan
     fallback: asking for a diff that git cannot produce is a tool error.
 
-    A file that crashes mid-scan is recorded on ``ScanReport.errors`` and the
-    surviving files are still reported; the CLI turns a non-empty error list
-    into exit 2.
+    A file that crashes mid-scan, or that tree-sitter cannot parse, is recorded
+    on ``ScanReport.errors`` and the surviving files are still reported; the CLI
+    turns a non-empty error list into exit 2. An unparseable file is deliberately
+    not graded: every sieve would read an empty or fragmented tree as clean code.
     """
     path = Path(path)
     errors: list[tuple[str, str]] = []

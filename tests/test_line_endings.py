@@ -12,7 +12,7 @@ import pytest
 
 from codesieve.config import Config
 from codesieve.engine import scan_file
-from codesieve.parser.treesitter import ParsedFile
+from codesieve.parser.treesitter import ParsedFile, SourceParseError
 from codesieve.sieves.error_handling import BARE_EXCEPT_PENALTY, ErrorHandlingSieve
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -136,13 +136,23 @@ def test_non_ascii_text_survives(tmp_path):
     b"x = 1\r",
     b"x = 1\r\r\ny = 2\r",
     b"x = 1",
-    b"\xff\xfe\r\rx = 1\r",
 ])
 def test_edge_files_scan_without_crashing(tmp_path, data):
     path = _write(tmp_path, "edge", "case.py", data)
     report = scan_file(path, Config())
     assert report.sieve_results
     assert ParsedFile(str(path)).line_count == len(data.decode("utf-8", errors="replace").splitlines())
+
+
+def test_undecodable_bytes_are_reported_rather_than_graded(tmp_path):
+    """A file that is not source at all is a parse error, not a perfect score.
+
+    Nothing in it survives parsing, so every sieve used to read it as a file with
+    no functions and hand out an A. It is now reported as a file that does not
+    parse — still without a traceback, and still leaving the other files graded.
+    """
+    with pytest.raises(SourceParseError):
+        scan_file(_write(tmp_path, "edge", "case.py", b"\xff\xfe\r\rx = 1\r"), Config())
 
 
 def test_blank_lines_keep_later_findings_on_their_line(tmp_path):
