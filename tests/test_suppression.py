@@ -289,3 +289,16 @@ def test_misspelled_sieve_name_is_still_reported(tmp_path, capsys):
     config.sieves = ["Naming"]
     scan_file(parsed.filepath, config)
     assert "kisss" in capsys.readouterr().err.lower()
+
+
+def test_every_marker_in_one_block_comment_is_honoured(tmp_path):
+    """Only the first marker used to be read, so the rest of a block did nothing."""
+    source = (
+        "/* codesieve: ignore[Naming]\n"
+        "   codesieve: ignore[KISS] */\n"
+        "function f(a_b) { if (a_b) { if (a_b) { return 1; } } }\n"
+    )
+    assert parse_suppressions(_parsed(tmp_path, source, "two.js")) == {
+        1: frozenset({"naming"}),
+        2: frozenset({"kiss"}),
+    }

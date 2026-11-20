@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import time
 from pathlib import Path
 
 from codesieve.parser.treesitter import ParsedFile
@@ -153,3 +154,13 @@ def test_very_long_expression_chain_does_not_blow_the_stack():
     code = "def f():\n    return " + " + ".join(["1"] * 5000) + "\n"
     result = _analyze(code)
     assert result.score >= 1.0
+
+
+def test_very_long_expression_chain_stays_fast():
+    """Grouping re-normalized every nested candidate: ~50 s for a 5000-term chain."""
+    code = "def f():\n    return " + " + ".join(["1"] * 5000) + "\n"
+    started = time.monotonic()
+    result = _analyze(code)
+    elapsed = time.monotonic() - started
+    assert result.score == 10.0, result.summary
+    assert elapsed < 10.0, f"a 5000-term chain took {elapsed:.1f}s"

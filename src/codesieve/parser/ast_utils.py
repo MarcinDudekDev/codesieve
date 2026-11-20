@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Iterator
 
 import tree_sitter
@@ -120,14 +121,41 @@ def max_nesting_in_subtree(root: tree_sitter.Node, nesting_types: tuple[str, ...
     return max_depth
 
 
-def named_descendant_count(node: tree_sitter.Node) -> int:
-    """Count named nodes in a subtree (including the node itself).
+def named_descendant_counts(root: tree_sitter.Node) -> dict[int, int]:
+    """Named-node count for every node under ``root``, in one bottom-up pass.
 
-    Used as a complexity floor so trivial expressions (e.g. `i + 1`) are ignored.
-    Leaves that exist only because of a CRLF break are skipped — the LF twin
-    does not have them.
+    The count is the complexity floor that ignores trivia like `i + 1`. Asking
+    about every candidate expression by walking its subtree instead is quadratic
+    on a long operator chain, so one pass answers them all. Leaves that exist
+    only because of a CRLF break are skipped — the LF twin does not have them.
     """
-    return sum(1 for n in walk_tree(node) if n.is_named and not _is_crlf_only_leaf(n))
+    counts: dict[int, int] = {}
+    pending: list[tuple[tree_sitter.Node, bool]] = [(root, False)]
+    while pending:
+        node, expanded = pending.pop()
+        if not expanded:
+            pending.append((node, True))
+            pending.extend((child, False) for child in node.children)
+            continue
+        own = 1 if node.is_named and not _is_crlf_only_leaf(node) else 0
+        counts[node.id] = own + sum(counts[child.id] for child in node.children)
+    return counts
+
+
+def _leaf_token(node: tree_sitter.Node, source: bytes, protected: bool,
+                identifier_types: tuple[str, ...], blank_identifiers: bool) -> str | None:
+    """How a leaf renders, or ``None`` when the node has children and needs a fold.
+
+    Shared by the text form and the digest form so the blanking and CRLF rules
+    cannot drift apart between them.
+    """
+    if _is_crlf_only_leaf(node):
+        return ""
+    if blank_identifiers and not protected and node.type in identifier_types:
+        return "§ID§"
+    if not node.children:
+        return _decode_slice(source, node.start_byte, node.end_byte)
+    return None
 
 
 def normalize_subtree(
@@ -159,20 +187,76 @@ def normalize_subtree(
             inner = "".join(rendered.pop(child.id) for child in current.children)
             rendered[current.id] = f"({current.type}{inner})"
             continue
-        if _is_crlf_only_leaf(current):
-            rendered[current.id] = ""
-        elif blank_identifiers and not protected and current.type in identifier_types:
-            rendered[current.id] = "§ID§"
-        elif not current.children:
-            rendered[current.id] = _decode_slice(source, current.start_byte, current.end_byte)
-        else:
-            # ``protected`` propagates down a call's callee, so the function
-            # *being* called keeps its name while its arguments are still
-            # blanked — otherwise `foo(a)` and `bar(a)` would normalize alike and
-            # read as a repetition.
-            pending.append((current, protected, True))
-            callee = current.child_by_field_name("function") if current.type in call_types else None
-            callee_id = callee.id if callee is not None else None
-            for child in reversed(current.children):
-                pending.append((child, protected or child.id == callee_id, False))
+        token = _leaf_token(current, source, protected, identifier_types, blank_identifiers)
+        if token is not None:
+            rendered[current.id] = token
+            continue
+        # ``protected`` propagates down a call's callee, so the function
+        # *being* called keeps its name while its arguments are still
+        # blanked — otherwise `foo(a)` and `bar(a)` would normalize alike and
+        # read as a repetition.
+        pending.append((current, protected, True))
+        callee = current.child_by_field_name("function") if current.type in call_types else None
+        callee_id = callee.id if callee is not None else None
+        for child in reversed(current.children):
+            pending.append((child, protected or child.id == callee_id, False))
     return rendered[node.id]
+
+
+def _digest(kind: str, children: list[str]) -> str:
+    """Fold a node's type and its rendered children into a fixed-width digest.
+
+    Empty child digests are skipped: they are CRLF-only leaves, which the text
+    form contributes nothing for, so hashing them would make a CRLF twin differ
+    from its LF original.
+    """
+    hasher = hashlib.blake2b(digest_size=16)
+    hasher.update(kind.encode())
+    for child in children:
+        if not child:
+            continue
+        hasher.update(b"\0")
+        hasher.update(child.encode())
+    return hasher.hexdigest()
+
+
+def normalize_subtree_digests(
+    root: tree_sitter.Node,
+    source: bytes,
+    identifier_types: tuple[str, ...] = (),
+    call_types: tuple[str, ...] = (),
+    blank_identifiers: bool = True,
+) -> dict[int, str]:
+    """Structural digest for every node under ``root``, in one bottom-up pass.
+
+    The same walk and the same rules as `normalize_subtree`, but each node is
+    folded into a fixed-width hash of its children's digests rather than a string
+    containing them. That keeps a whole tree linear in memory and, because one
+    pass answers every node, linear in time: asking `normalize_subtree` about
+    each of the ~5000 nested expressions of a 5000-term operator chain rendered
+    another copy of the chain each time and took ~50 s.
+
+    Digests come from the tree, so a node reached through a call's callee field
+    carries callee protection here even if a caller would render it as a root.
+    Equal digests therefore mean equal normalized text only up to that context
+    and a hash collision; a caller acting on a group must confirm the exact text.
+    """
+    digests: dict[int, str] = {}
+    pending: list[tuple[tree_sitter.Node, bool, bool]] = [(root, False, False)]
+    while pending:
+        current, protected, expanded = pending.pop()
+        if expanded:
+            digests[current.id] = _digest(
+                current.type, [digests[child.id] for child in current.children]
+            )
+            continue
+        token = _leaf_token(current, source, protected, identifier_types, blank_identifiers)
+        if token is not None:
+            digests[current.id] = token
+            continue
+        pending.append((current, protected, True))
+        callee = current.child_by_field_name("function") if current.type in call_types else None
+        callee_id = callee.id if callee is not None else None
+        for child in reversed(current.children):
+            pending.append((child, protected or child.id == callee_id, False))
+    return digests

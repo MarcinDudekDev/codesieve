@@ -65,6 +65,27 @@ def _snippet(node: tree_sitter.Node, source: bytes) -> str:
     return flat if len(flat) <= SNIPPET_MAX else flat[:SNIPPET_MAX - 1] + "…"
 
 
+def _embedded_type_flags(root: tree_sitter.Node, types: tuple[str, ...]) -> dict[int, bool]:
+    """Per node, whether its subtree holds a node of one of ``types``, in one pass.
+
+    This is the "embeds inline logic worth naming" test. Answering it by walking
+    each candidate's subtree is quadratic when candidates nest (a long operator
+    chain), so the whole tree is answered at once.
+    """
+    flags: dict[int, bool] = {}
+    if not types:
+        return flags
+    pending: list[tuple[tree_sitter.Node, bool]] = [(root, False)]
+    while pending:
+        node, expanded = pending.pop()
+        if not expanded:
+            pending.append((node, True))
+            pending.extend((child, False) for child in node.children)
+            continue
+        flags[node.id] = node.type in types or any(flags[child.id] for child in node.children)
+    return flags
+
+
 class _ExprGroup:
     """A set of structurally-identical expression occurrences sharing one normalized form."""
 
@@ -164,17 +185,33 @@ class DrySieve(BaseSieve):
 
         candidates = self._collect_candidates(parsed, expr_types, dup_func_nodes)
 
+        render_options = dict(
+            identifier_types=parsed.lang_map.identifier_types,
+            call_types=parsed.lang_map.call_types,
+            blank_identifiers=BLANK_IDENTIFIERS,
+        )
+        # A digest per node from one pass, instead of normalizing every candidate's
+        # whole subtree: nested candidates made that quadratic (a 5000-term chain
+        # rendered 5000 shrinking copies of itself, ~50 s).
+        digests = ast_utils.normalize_subtree_digests(parsed.root, parsed.source, **render_options)
+
         groups: dict[str, _ExprGroup] = defaultdict(_ExprGroup)
         for node in candidates:
-            key = ast_utils.normalize_subtree(
-                node, parsed.source,
-                identifier_types=parsed.lang_map.identifier_types,
-                call_types=parsed.lang_map.call_types,
-                blank_identifiers=BLANK_IDENTIFIERS,
-            )
-            groups[key].nodes.append(node)
+            groups[digests[node.id]].nodes.append(node)
 
-        qualifying = [g for g in groups.values() if len(g.nodes) >= MIN_OCCURRENCES]
+        # A digest is a hash, and a candidate inside a callee field was digested
+        # with callee protection: split every candidate group by the exact
+        # normalized text before trusting it, so neither can merge two different
+        # expressions into one "repetition".
+        qualifying: list[_ExprGroup] = []
+        for group in groups.values():
+            if len(group.nodes) < MIN_OCCURRENCES:
+                continue
+            exact: dict[str, _ExprGroup] = defaultdict(_ExprGroup)
+            for node in group.nodes:
+                exact[ast_utils.normalize_subtree(node, parsed.source, **render_options)].nodes.append(node)
+            qualifying.extend(g for g in exact.values() if len(g.nodes) >= MIN_OCCURRENCES)
+
         kept = self._suppress_nested(qualifying)
 
         findings: list[Finding] = []
@@ -227,24 +264,20 @@ class DrySieve(BaseSieve):
         already-extracted pattern) is never flagged just for being called repeatedly.
         """
         significant = parsed.lang_map.dedup_significant_types
+        counts = ast_utils.named_descendant_counts(parsed.root)
+        embedded = _embedded_type_flags(parsed.root, significant)
         candidates: list[tree_sitter.Node] = []
         for node in ast_utils.walk_tree(parsed.root):
             if node.type not in expr_types:
                 continue
-            if ast_utils.named_descendant_count(node) < MIN_EXPR_NODES:
+            if counts[node.id] < MIN_EXPR_NODES:
                 continue
-            if not self._has_significant_content(node, significant):
+            if significant and not embedded[node.id]:
                 continue
             if self._inside_dup_body(node, dup_func_nodes):
                 continue
             candidates.append(node)
         return candidates
-
-    @staticmethod
-    def _has_significant_content(node: tree_sitter.Node, significant: tuple[str, ...]) -> bool:
-        if not significant:
-            return True
-        return any(n.type in significant for n in ast_utils.walk_tree(node))
 
     @staticmethod
     def _inside_dup_body(node: tree_sitter.Node, dup_func_nodes: set[int]) -> bool:

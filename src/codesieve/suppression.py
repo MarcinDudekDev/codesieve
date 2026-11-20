@@ -51,22 +51,21 @@ def parse_suppressions(parsed: ParsedFile) -> dict[int, frozenset[str] | None]:
     A marker inside a multi-line comment (``/* … codesieve: ignore … */``) is
     anchored on the line the marker itself sits on, the same line NoSilencing
     reports it on — an ignore comment must silence the line it names, not the
-    line where the block comment happens to open.
+    line where the block comment happens to open. Every marker in a comment
+    counts, so a block that names one sieve per line silences each of them.
     """
     suppressed: dict[int, frozenset[str] | None] = {}
     for node in parsed.get_comments():
         text = ast_utils.get_node_text(node, parsed.source)
-        match = SUPPRESS_RE.search(text)
-        if match is None:
-            continue
-        lineno = node.start_point[0] + 1 + text.count("\n", 0, match.start())
-        raw_names = match.group(1)
-        if raw_names is None or not raw_names.strip():
-            suppressed[lineno] = _ALL  # bare ignore -> silence everything on this line
-            continue
-        names = frozenset(n.strip().lower() for n in raw_names.split(",") if n.strip())
-        existing = suppressed.get(lineno, frozenset())
-        suppressed[lineno] = existing if existing is _ALL else (existing | names)
+        for match in SUPPRESS_RE.finditer(text):
+            lineno = node.start_point[0] + 1 + text.count("\n", 0, match.start())
+            raw_names = match.group(1)
+            if raw_names is None or not raw_names.strip():
+                suppressed[lineno] = _ALL  # bare ignore -> silence everything on this line
+                continue
+            names = frozenset(n.strip().lower() for n in raw_names.split(",") if n.strip())
+            existing = suppressed.get(lineno, frozenset())
+            suppressed[lineno] = existing if existing is _ALL else (existing | names)
     return suppressed
 
 
